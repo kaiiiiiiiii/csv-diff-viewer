@@ -1,0 +1,181 @@
+import { createFileRoute } from '@tanstack/react-router'
+import { useState, useRef, useEffect } from 'react'
+import { useCsvWorker } from '@/hooks/useCsvWorker'
+import { CsvInput } from '@/components/CsvInput'
+import { ConfigPanel } from '@/components/ConfigPanel'
+import { DiffStats } from '@/components/DiffStats'
+import { DiffTable } from '@/components/DiffTable'
+import { Button } from '@/components/ui/button'
+import { Loader2 } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
+
+export const Route = createFileRoute('/')({
+  component: Index,
+})
+
+function Index() {
+  const { parse, compare } = useCsvWorker()
+  const [sourceData, setSourceData] = useState<{
+    text: string
+    name: string
+  } | null>(null)
+  const [targetData, setTargetData] = useState<{
+    text: string
+    name: string
+  } | null>(null)
+
+  const [mode, setMode] = useState<'primary-key' | 'content-match'>(
+    'primary-key',
+  )
+  const [keyColumns, setKeyColumns] = useState<string[]>([])
+  const [excludedColumns, setExcludedColumns] = useState<string[]>([])
+  const [hasHeaders, setHasHeaders] = useState(true)
+  const [ignoreWhitespace, setIgnoreWhitespace] = useState(true)
+  const [caseSensitive, setCaseSensitive] = useState(false)
+
+  const [results, setResults] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState<{
+    percent: number
+    message: string
+  } | null>(null)
+  const [showOnlyDiffs, setShowOnlyDiffs] = useState(false)
+
+  const [availableColumns, setAvailableColumns] = useState<string[]>([])
+  const resultsRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (results && resultsRef.current) {
+      resultsRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [results])
+
+  const handleSourceChange = async (text: string, name: string) => {
+    setSourceData({ text, name })
+    // Parse to get headers for available columns
+    if (text) {
+      try {
+        const res: any = await parse(text, name, hasHeaders)
+        setAvailableColumns(res.headers)
+      } catch (e) {
+        console.error(e)
+      }
+    }
+  }
+
+  const handleTargetChange = (text: string, name: string) => {
+    setTargetData({ text, name })
+  }
+
+  const handleCompare = async () => {
+    if (!sourceData || !targetData) return
+
+    setLoading(true)
+    setResults(null)
+    setProgress({ percent: 0, message: 'Starting...' })
+
+    try {
+      const sourceParsed = await parse(
+        sourceData.text,
+        sourceData.name,
+        hasHeaders,
+      )
+      const targetParsed = await parse(
+        targetData.text,
+        targetData.name,
+        hasHeaders,
+      )
+
+      const res = await compare(
+        sourceParsed,
+        targetParsed,
+        {
+          comparisonMode: mode,
+          keyColumns,
+          excludedColumns,
+          caseSensitive,
+          ignoreWhitespace,
+        },
+        (percent, message) => setProgress({ percent, message }),
+      )
+      setResults(res)
+    } catch (e: any) {
+      alert('Error: ' + e.message)
+    } finally {
+      setLoading(false)
+      setProgress(null)
+    }
+  }
+
+  return (
+    <div className="container mx-auto py-8 space-y-8">
+      <div className="text-center space-y-2">
+        <h1 className="text-4xl font-bold tracking-tight">CSV Diff Viewer</h1>
+        <p className="text-muted-foreground">
+          Compare CSV files with high performance
+        </p>
+      </div>
+      <div className="grid md:grid-cols-2 gap-6">
+        <CsvInput title="Source CSV (Old)" onDataChange={handleSourceChange} />
+        <CsvInput title="Target CSV (New)" onDataChange={handleTargetChange} />
+      </div>
+      <ConfigPanel
+        mode={mode}
+        setMode={setMode}
+        keyColumns={keyColumns}
+        setKeyColumns={setKeyColumns}
+        excludedColumns={excludedColumns}
+        setExcludedColumns={setExcludedColumns}
+        hasHeaders={hasHeaders}
+        setHasHeaders={setHasHeaders}
+        ignoreWhitespace={ignoreWhitespace}
+        setIgnoreWhitespace={setIgnoreWhitespace}
+        caseSensitive={caseSensitive}
+        setCaseSensitive={setCaseSensitive}
+        availableColumns={availableColumns}
+      />{' '}
+      <div className="flex justify-center">
+        <Button
+          size="lg"
+          onClick={handleCompare}
+          disabled={loading || !sourceData || !targetData}
+          className="w-full md:w-auto min-w-[200px]"
+        >
+          {loading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {progress
+                ? `${Math.round(progress.percent)}% - ${progress.message}`
+                : 'Processing...'}
+            </>
+          ) : (
+            'Compare Files'
+          )}
+        </Button>
+      </div>
+      {results && (
+        <div
+          ref={resultsRef}
+          className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500"
+        >
+          <DiffStats
+            added={results.added.length}
+            removed={results.removed.length}
+            modified={results.modified.length}
+            unchanged={results.unchanged.length}
+          />
+
+          <div className="flex items-center justify-end space-x-2">
+            <label className="text-sm font-medium">Show Only Differences</label>
+            <Switch
+              checked={showOnlyDiffs}
+              onCheckedChange={setShowOnlyDiffs}
+            />
+          </div>
+
+          <DiffTable results={results} showOnlyDiffs={showOnlyDiffs} />
+        </div>
+      )}
+    </div>
+  )
+}
