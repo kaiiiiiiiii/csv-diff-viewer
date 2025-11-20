@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { FileSpreadsheet, Loader2 } from 'lucide-react'
 import { useCsvWorker } from '@/hooks/useCsvWorker'
+import { useChunkedDiff } from '@/hooks/useChunkedDiff'
 import { CsvInput } from '@/components/CsvInput'
 import { ConfigPanel } from '@/components/ConfigPanel'
 import { DiffStats } from '@/components/DiffStats'
@@ -44,6 +45,7 @@ export const Route = createFileRoute('/')({
 
 function Index() {
   const { parse, compare } = useCsvWorker()
+  const { startChunkedDiff, loadDiffResults, isProcessing: isChunkedProcessing } = useChunkedDiff()
   const [sourceData, setSourceData] = useState<{
     text: string
     name: string
@@ -62,12 +64,16 @@ function Index() {
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(true)
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [ignoreEmptyVsNull, setIgnoreEmptyVsNull] = useState(true)
+  const [useChunkedMode, setUseChunkedMode] = useState(false)
+  const [chunkSize, setChunkSize] = useState(10000)
 
   const [results, setResults] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState<{
     percent: number
     message: string
+    currentChunk?: number
+    totalChunks?: number
   } | null>(null)
   const [showOnlyDiffs, setShowOnlyDiffs] = useState(false)
 
@@ -121,23 +127,56 @@ function Index() {
         hasHeaders,
       )
 
-      const res = await compare(
-        sourceParsed,
-        targetParsed,
-        {
-          comparisonMode: mode,
-          keyColumns: keyColumns.filter(Boolean),
-          excludedColumns: excludedColumns.filter(Boolean),
-          caseSensitive,
-          ignoreWhitespace,
-          ignoreEmptyVsNull,
-          sourceRaw: sourceData.text,
-          targetRaw: targetData.text,
-          hasHeaders,
-        },
-        (percent, message) => setProgress({ percent, message }),
-      )
-      setResults(res)
+      // Use chunked mode for large datasets with primary-key mode
+      if (useChunkedMode && mode === 'primary-key') {
+        const diffId = await startChunkedDiff(
+          sourceData.text,
+          targetData.text,
+          sourceParsed.headers,
+          targetParsed.headers,
+          {
+            comparisonMode: mode,
+            keyColumns: keyColumns.filter(Boolean),
+            excludedColumns: excludedColumns.filter(Boolean),
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            hasHeaders,
+            chunkSize,
+          },
+          (progress) => {
+            setProgress({
+              percent: progress.percent,
+              message: progress.message,
+              currentChunk: progress.currentChunk,
+              totalChunks: progress.totalChunks,
+            })
+          },
+        )
+
+        // Load results from IndexedDB
+        const res = await loadDiffResults(diffId)
+        setResults(res)
+      } else {
+        // Normal mode - load everything into memory
+        const res = await compare(
+          sourceParsed,
+          targetParsed,
+          {
+            comparisonMode: mode,
+            keyColumns: keyColumns.filter(Boolean),
+            excludedColumns: excludedColumns.filter(Boolean),
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            sourceRaw: sourceData.text,
+            targetRaw: targetData.text,
+            hasHeaders,
+          },
+          (percent, message) => setProgress({ percent, message }),
+        )
+        setResults(res)
+      }
     } catch (e: any) {
       alert('Error: ' + e.message)
     } finally {
@@ -203,6 +242,10 @@ function Index() {
         ignoreEmptyVsNull={ignoreEmptyVsNull}
         setIgnoreEmptyVsNull={setIgnoreEmptyVsNull}
         availableColumns={availableColumns}
+        useChunkedMode={useChunkedMode}
+        setUseChunkedMode={setUseChunkedMode}
+        chunkSize={chunkSize}
+        setChunkSize={setChunkSize}
       />{' '}
       <div className="flex justify-center">
         <Button
@@ -214,9 +257,15 @@ function Index() {
           {loading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {progress
-                ? `${Math.round(progress.percent)}% - ${progress.message}`
-                : 'Processing...'}
+              {progress ? (
+                progress.totalChunks ? (
+                  `${Math.round(progress.percent)}% - Chunk ${progress.currentChunk}/${progress.totalChunks}`
+                ) : (
+                  `${Math.round(progress.percent)}% - ${progress.message}`
+                )
+              ) : (
+                'Processing...'
+              )}
             </>
           ) : (
             'Compare Files'
