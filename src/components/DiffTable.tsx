@@ -203,7 +203,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
     <FullScreen enabled={isFullscreen} onChange={setIsFullscreen}>
       <div
         className={cn(
-          'space-y-4 transition-all duration-300 ease-in-out bg-background',
+          'space-y-4 bg-background',
           isExpanded &&
             !isFullscreen &&
             'w-screen relative left-[50%] right-[50%] -ml-[50vw] -mr-[50vw] px-8',
