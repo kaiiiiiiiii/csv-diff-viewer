@@ -21,13 +21,22 @@ const EXAMPLE_SOURCE = `id,name,role,department
 1,John Doe,Developer,Engineering
 2,Jane Smith,Designer,Design
 3,Bob Wilson,Manager,Sales
-4,Alice Brown,Developer,Engineering`
+4,Alice Brown,Developer,Engineering
+6,Eve Johnson,Intern,Marketing
+7,Frank Miller,Analyst,Finance
+8,Grace Lee,Consultant,HR
+9,Henry Kim,Support,Customer Service
+10,Ivy Chen,Engineer,Engineering`
 
 const EXAMPLE_TARGET = `id,name,role,department
 1,John Doe,Senior Developer,Engineering
 2,Jane Smith,Designer,Design
 3,Bob Wilson,Director,Sales
-5,Charlie Davis,Manager,Marketing`
+5,Charlie Davis,Manager,Marketing
+8,Grace Lee,Consultant,Human Resources
+9,Henry Kim,Team Lead,Customer Service
+10,Ivy Chen,Engineer,Engineering
+11,Jack White,Developer,Engineering`
 
 export const Route = createFileRoute('/')({
   component: Index,
