@@ -1,6 +1,9 @@
 import { parseCSV } from '../lib/csv-parser'
 import { compareByContent, compareByPrimaryKey } from '../lib/comparison-engine'
-import init, { diff_csv } from '../../src-wasm/pkg/csv_diff_wasm'
+import init, {
+  diff_csv,
+  diff_csv_primary_key,
+} from '../../src-wasm/pkg/csv_diff_wasm'
 
 const ctx: Worker = self as any
 let wasmInitialized = false
@@ -60,15 +63,32 @@ ctx.onmessage = async function (e) {
 
       let results
       if (comparisonMode === 'primary-key') {
-        results = await compareByPrimaryKey(
-          source,
-          target,
-          keyColumns,
-          caseSensitive,
-          ignoreWhitespace,
-          excludedColumns,
-          emitProgress,
-        )
+        if (sourceRaw && targetRaw) {
+          await initWasm()
+          emitProgress(0, 'Starting WASM comparison (Primary Key)...')
+          results = diff_csv_primary_key(
+            sourceRaw,
+            targetRaw,
+            keyColumns,
+            caseSensitive,
+            ignoreWhitespace,
+            excludedColumns,
+            hasHeaders !== false,
+            (percent: number, message: string) =>
+              emitProgress(percent, message),
+          )
+          emitProgress(100, 'WASM comparison complete')
+        } else {
+          results = await compareByPrimaryKey(
+            source,
+            target,
+            keyColumns,
+            caseSensitive,
+            ignoreWhitespace,
+            excludedColumns,
+            emitProgress,
+          )
+        }
       } else {
         // Use WASM if raw data is available and we are in content match mode
         if (sourceRaw && targetRaw) {

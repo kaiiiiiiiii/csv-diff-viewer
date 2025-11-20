@@ -61,10 +61,22 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
 
   // 2. Define Columns
   const columns = useMemo<Array<ColumnDef<DiffRow>>>(() => {
-    const headers =
-      results.target.headers.length > 0
-        ? results.target.headers
-        : results.source.headers
+    const headers = (() => {
+      const sourceHeaders = results.source.headers || []
+      const targetHeaders = results.target.headers || []
+
+      // Create a union of headers while preserving order as much as possible
+      const headerSet = new Set(targetHeaders)
+      const combinedHeaders = [...targetHeaders]
+
+      sourceHeaders.forEach((h) => {
+        if (!headerSet.has(h)) {
+          combinedHeaders.push(h)
+        }
+      })
+
+      return combinedHeaders.length > 0 ? combinedHeaders : sourceHeaders
+    })()
 
     const dynamicCols: Array<ColumnDef<DiffRow>> = headers.map(
       (header, index) => ({
@@ -110,8 +122,11 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
           }
 
           // Debug logging for modified rows with missing values
-          if (row.type === 'modified' && (value === undefined || value === null || value === '')) {
-             // console.log('Missing value for modified row:', { header, row, value });
+          if (
+            row.type === 'modified' &&
+            (value === undefined || value === null || value === '')
+          ) {
+            // console.log('Missing value for modified row:', { header, row, value });
           }
 
           return (

@@ -2,73 +2,209 @@
 
 ## Project Overview
 
-This is a high-performance CSV comparison tool built with **React**, **TypeScript**, and **Rust (WebAssembly)**. It uses a hybrid architecture where heavy computational tasks are offloaded to a Web Worker and, for specific modes, to a Rust WASM module.
+High-performance CSV comparison tool built with **React**, **TypeScript**, and **Rust (WebAssembly)**. Uses a hybrid architecture where heavy computational tasks are offloaded to a Web Worker and Rust WASM module for optimal performance.
 
 ## Architecture & Data Flow
 
-### 1. Hybrid Comparison Engine
+### Hybrid Comparison Engine
 
-The application supports two comparison modes with different execution paths:
+Two comparison modes with different execution paths:
 
-- **Primary Key Mode**: Executed in **TypeScript** within the Web Worker. Best for datasets with unique identifiers.
-- **Content Match Mode**: Executed in **Rust (WASM)** within the Web Worker. Best for heuristic matching of rows without IDs.
-  - _Fallback_: Falls back to TS implementation if raw CSV strings are unavailable.
+- **Primary Key Mode**: TypeScript in Web Worker. Uses Map-based lookups with parallel batch processing (see `compareByPrimaryKey` in `comparison-engine.ts`). Best for datasets with unique identifiers.
+- **Content Match Mode**: Rust WASM in Web Worker. Uses inverted index and similarity scoring (see `diff_csv_internal` in `src-wasm/src/lib.rs`). Best for heuristic matching without IDs.
+  - **Fallback**: Both modes fall back to TS implementation if raw CSV strings unavailable.
 
-### 2. Threading Model
+### Threading Model
 
-- **Main Thread**: Handles UI rendering, user input, and file reading. **NEVER** perform heavy CSV parsing or comparison here.
-- **Web Worker** (`src/workers/csv.worker.ts`): Orchestrates the comparison process. It lazy-loads the WASM module and communicates progress back to the main thread.
+- **Main Thread**: UI rendering, user input, file reading. **NEVER** perform heavy CSV parsing/comparison here.
+- **Web Worker** (`src/workers/csv.worker.ts`): Orchestrates comparison, lazy-loads WASM, communicates progress via callbacks.
 
-### 3. Data Flow
+### Data Flow Pattern
 
-1.  **UI**: User selects files -> `useCsvWorker` hook sends data to Worker.
-2.  **Worker**: Receives `source` and `target` data.
-    - If `content-match`: Calls `diff_csv` (WASM).
-    - If `primary-key`: Calls `compareByPrimaryKey` (TS).
-3.  **Result**: Worker posts `DiffResult` back to UI for rendering.
+```
+UI (useCsvWorker hook)
+  → Worker (csv.worker.ts)
+    → WASM (diff_csv/diff_csv_primary_key) OR TS (compareByContent/compareByPrimaryKey)
+      → DiffResult back to UI
+```
 
-## Developer Workflow
+## Critical Developer Workflows
 
-### Build & Run
+### Build Commands
 
-- **Dev Server**: `npm run dev` (starts Vite).
-- **Wasm Build**: `npm run build:wasm` (requires `wasm-pack`).
-  - _Note_: You must run this if you modify `src-wasm/`.
-- **Full Build**: `npm run build` (builds Wasm -> then Client).
+```bash
+# Development
+npm run dev                    # Start Vite dev server (port 3000)
 
-### Testing
+# WASM builds (required after Rust changes)
+npm run build:wasm            # Build Rust → WASM (requires wasm-pack)
+npm run build                 # Full build: WASM → Client
 
-- **Unit Tests**: `npm test` (Vitest).
+# Quality checks
+npm test                      # Run Vitest unit tests
+npm run lint                  # ESLint checks
+npm run format                # Prettier formatting
+npm run check                 # Format + lint fix
+```
 
-## Code Conventions
+### WASM Development
 
-### WebAssembly (Rust)
+- **Always run `npm run build:wasm`** after modifying `src-wasm/src/lib.rs`
+- Rust code uses `wasm-bindgen` for JS interop
+- Pass raw strings to WASM (avoid large JS objects for performance)
+- Progress callbacks use JS `Function` parameter for UI updates
 
-- Located in `src-wasm/`.
-- Use `wasm-bindgen` to expose functions to JS.
-- **Performance**: Avoid passing large JS objects to Wasm. Pass raw strings or flat arrays when possible to minimize serialization overhead.
-- **Panic Handling**: Ensure Rust panics are caught or handled gracefully to prevent crashing the worker.
+## Code Conventions & Patterns
 
-### Web Worker
+### TypeScript Patterns
 
-- Located in `src/workers/`.
-- Use `postMessage` for communication.
-- Always include a `requestId` in messages to correlate requests/responses.
-- Handle errors explicitly and send `type: 'error'` messages back to the main thread.
+**Heavy use of `any` type**: The codebase intentionally uses `any` for performance-critical code (20+ instances). This is intentional for:
 
-### Frontend (React)
+- Dynamic row data structures (`Array<any>` in DiffResult)
+- Worker message passing
+- Performance-sensitive comparison loops
 
-- **Routing**: Uses **TanStack Router** (`src/routes`). File-based routing.
-- **State**: Local state for UI; Worker for data processing.
-- **Styling**: **Tailwind CSS** with **shadcn/ui** components (`src/components/ui`).
-- **Components**:
-  - `DiffTable.tsx`: Virtualized table for displaying results (TanStack Virtual).
-  - `ConfigPanel.tsx`: Settings for comparison.
+**Example from `comparison-engine.ts`**:
+
+```typescript
+export interface DiffResult {
+  added: Array<any> // Intentional: flexible row structures
+  removed: Array<any>
+  modified: Array<any>
+  unchanged: Array<any>
+}
+```
+
+### Web Worker Communication
+
+**Request/Response Pattern** (`useCsvWorker.ts`):
+
+- Each request has unique `requestId` for correlation
+- Progress callbacks for UI updates
+- Explicit error handling with `type: 'error'` messages
+
+**Worker Implementation** (`csv.worker.ts`):
+
+```typescript
+ctx.onmessage = async function (e) {
+  const { requestId, type, data } = e.data || {}
+  // Always validate requestId
+  // Use progress callbacks: emitProgress(percent, message)
+  // Send errors: ctx.postMessage({ requestId, type: 'error', data })
+}
+```
+
+### Performance Optimizations
+
+**Parallel Batch Processing** (`comparison-engine.ts`):
+
+- Processes data in `BATCH_SIZE * PARALLEL_BATCHES` chunks
+- Uses `Promise.all()` for parallel execution
+- Yields to UI with `setTimeout(r, 0)` for responsiveness
+
+**Virtualized Rendering** (`DiffTable.tsx`):
+
+- Uses `@tanstack/react-virtual` for large datasets
+- Sticky headers with shadow
+- Dynamic row heights (estimateSize: 50px)
+
+**WASM Optimization** (`src-wasm/src/lib.rs`):
+
+- Inverted index for content matching
+- HashMap-based lookups for O(1) access
+- Progress reporting every N iterations
+
+### Component Architecture
+
+**UI Components** (`src/components/`):
+
+- `DiffTable.tsx`: Virtualized table with fullscreen/expand modes
+- `ConfigPanel.tsx`: Comparison settings (mode, columns, options)
+- `CsvInput.tsx`: File upload and text input
+- Uses **shadcn/ui** components (Button, Card, Input, etc.)
+
+**State Management**:
+
+- Local React state for UI (mode, filters, view options)
+- Web Worker for data processing (never block UI thread)
+- Results cached in refs for scroll position preservation
+
+### Comparison Algorithms
+
+**Primary Key Mode** (`compareByPrimaryKey`):
+
+1. Build Map of source rows keyed by composite key
+2. Build Map of target rows (validate uniqueness)
+3. Find removed: keys in source but not target
+4. Compare target rows: added/modified/unchanged
+5. Parallel batch processing for steps 1-2 and 3-4
+
+**Content Match Mode** (`diff_csv_internal`):
+
+1. Build fingerprint lookup for exact matches
+2. Build inverted index for similarity search
+3. For each source row: try exact match → similarity match → removed
+4. Remaining target rows are added
 
 ## Critical Files
 
-- `src/workers/csv.worker.ts`: Central hub for comparison logic orchestration.
-- `src/lib/comparison-engine.ts`: TypeScript implementation of comparison algorithms.
-- `src-wasm/src/lib.rs`: Rust implementation of the content matching algorithm.
-- `docs/wasm-integration.md`: Detailed documentation on the Wasm architecture.
-- `vite.config.ts`: Configuration for Vite and Wasm plugins.
+- **`src/workers/csv.worker.ts`**: Worker orchestration, WASM lazy-loading, progress callbacks
+- **`src/lib/comparison-engine.ts`**: TS comparison algorithms, parallel batch processing
+- **`src-wasm/src/lib.rs`**: Rust WASM implementation, inverted index, similarity matching
+- **`src/hooks/useCsvWorker.ts`**: Worker communication hook, request/response correlation
+- **`src/components/DiffTable.tsx`**: Virtualized table, fullscreen mode, filtering
+- **`vite.config.ts`**: WASM plugin configuration, TanStack Router setup
+- **`docs/wasm-integration.md`**: Detailed WASM architecture documentation
+
+## Error Handling Patterns
+
+**Worker Errors**:
+
+```typescript
+try {
+  // comparison logic
+} catch (error: any) {
+  ctx.postMessage({
+    requestId,
+    type: 'error',
+    data: { message: error.message, stack: error.stack },
+  })
+}
+```
+
+**UI Error Display**:
+
+```typescript
+} catch (e: any) {
+  alert('Error: ' + e.message)  // Simple error display
+}
+```
+
+## Testing Approach
+
+- **Unit Tests**: `npm test` runs Vitest
+- **WASM Tests**: Rust tests in `src-wasm/src/lib.rs` (see `#[cfg(test)]`)
+- **Integration**: Test via browser with example data (Load Example button)
+
+## Common Tasks
+
+**Adding New Comparison Option**:
+
+1. Add to `ConfigPanel.tsx` (UI control)
+2. Add to `useCsvWorker.compare()` options
+3. Pass through worker to comparison functions
+4. Implement in both TS (`comparison-engine.ts`) and WASM (`src-wasm/src/lib.rs`)
+
+**Performance Issues**:
+
+1. Check if raw CSV strings available (enables WASM)
+2. Verify batch sizes in comparison algorithms
+3. Ensure UI yields with `setTimeout(r, 0)` in loops
+4. Consider virtualized rendering for large results
+
+**Debugging WASM**:
+
+1. Check browser console for Rust panics
+2. Verify `npm run build:wasm` completed successfully
+3. Test with simple data first
+4. Check progress callback messages
