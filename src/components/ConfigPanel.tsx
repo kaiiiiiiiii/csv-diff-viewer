@@ -71,12 +71,7 @@ export function ConfigPanel({
             <Input
               value={keyColumns.join(', ')}
               onChange={(e) =>
-                setKeyColumns(
-                  e.target.value
-                    .split(',')
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                )
+                setKeyColumns(e.target.value.split(',').map((s) => s.trim()))
               }
               placeholder="e.g. ID, Email"
             />
@@ -93,12 +88,7 @@ export function ConfigPanel({
           <Input
             value={excludedColumns.join(', ')}
             onChange={(e) =>
-              setExcludedColumns(
-                e.target.value
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              )
+              setExcludedColumns(e.target.value.split(',').map((s) => s.trim()))
             }
             placeholder="e.g. CreatedAt, UpdatedAt"
           />

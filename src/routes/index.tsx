@@ -125,8 +125,8 @@ function Index() {
         targetParsed,
         {
           comparisonMode: mode,
-          keyColumns,
-          excludedColumns,
+          keyColumns: keyColumns.filter(Boolean),
+          excludedColumns: excludedColumns.filter(Boolean),
           caseSensitive,
           ignoreWhitespace,
         },
