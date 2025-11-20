@@ -584,3 +584,198 @@ pub fn diff_text_internal(old: &str, new: &str, case_sensitive: bool) -> Vec<Dif
     }
     changes
 }
+
+/// Chunked version of diff_csv_primary_key that processes CSVs in chunks
+/// Returns results for a specific chunk range
+pub fn diff_csv_primary_key_chunked<F>(
+    source_csv: &str,
+    target_csv: &str,
+    key_columns: Vec<String>,
+    case_sensitive: bool,
+    ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
+    excluded_columns: Vec<String>,
+    has_headers: bool,
+    chunk_start: usize,
+    chunk_size: usize,
+    mut on_progress: F,
+) -> Result<DiffResult, Box<dyn std::error::Error>>
+where
+    F: FnMut(f64, &str),
+{
+    on_progress(0.0, "Parsing source CSV...");
+    let (source_headers, source_rows, source_header_map) = parse_csv_internal(source_csv, has_headers)?;
+
+    on_progress(10.0, "Parsing target CSV...");
+    let (target_headers, target_rows, target_header_map) = parse_csv_internal(target_csv, has_headers)?;
+
+    // Validation of key columns
+    for key in &key_columns {
+        if !source_header_map.contains_key(key) {
+             return Err(format!("Primary key column \"{}\" not found in source dataset.", key).into());
+        }
+        if !target_header_map.contains_key(key) {
+             return Err(format!("Primary key column \"{}\" not found in target dataset.", key).into());
+        }
+    }
+
+    on_progress(20.0, "Building source map...");
+    let mut source_map: AHashMap<String, usize> = AHashMap::new();
+    for (i, row) in source_rows.iter().enumerate() {
+        let key = get_row_key(row, &source_header_map, &key_columns);
+        if source_map.contains_key(&key) {
+             return Err(format!("Duplicate Primary Key found in source: \"{}\". Primary Keys must be unique.", key).into());
+        }
+        source_map.insert(key, i);
+    }
+
+    on_progress(40.0, "Building target map...");
+    let mut target_map: AHashMap<String, usize> = AHashMap::new();
+    for (i, row) in target_rows.iter().enumerate() {
+        let key = get_row_key(row, &target_header_map, &key_columns);
+        if target_map.contains_key(&key) {
+             return Err(format!("Duplicate Primary Key found in target: \"{}\". Primary Keys must be unique.", key).into());
+        }
+        target_map.insert(key, i);
+    }
+
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let mut modified = Vec::new();
+    let mut unchanged = Vec::new();
+
+    on_progress(60.0, "Processing chunk...");
+
+    // Process only the specified chunk of target rows
+    let chunk_end = (chunk_start + chunk_size).min(target_map.len());
+    let target_keys: Vec<String> = target_map.keys().cloned().collect();
+    
+    for (i, key) in target_keys.iter().enumerate().skip(chunk_start).take(chunk_end - chunk_start) {
+        if i % 100 == 0 {
+            let chunk_progress = (i - chunk_start) as f64 / (chunk_end - chunk_start) as f64;
+            let p = 60.0 + chunk_progress * 35.0;
+            on_progress(p, &format!("Processing row {} of chunk...", i - chunk_start));
+        }
+
+        let &target_row_idx = target_map.get(key).unwrap();
+        let target_row = &target_rows[target_row_idx];
+
+        match source_map.get(key) {
+            None => {
+                added.push(AddedRow {
+                    key: key.clone(),
+                    target_row: record_to_hashmap(target_row, &target_headers),
+                });
+            }
+            Some(&source_row_idx) => {
+                let source_row = &source_rows[source_row_idx];
+                let mut differences = Vec::new();
+                
+                for header in &source_headers {
+                    if excluded_columns.contains(header) {
+                        continue;
+                    }
+                    
+                    let source_idx = source_header_map.get(header).unwrap();
+                    let target_idx = match target_header_map.get(header) {
+                        Some(idx) => idx,
+                        None => continue,
+                    };
+
+                    let source_val_raw = source_row.get(*source_idx).unwrap_or("");
+                    let target_val_raw = target_row.get(*target_idx).unwrap_or("");
+
+                    let source_val = normalize_value_with_empty_vs_null(
+                        source_val_raw,
+                        case_sensitive,
+                        ignore_whitespace,
+                        ignore_empty_vs_null
+                    );
+                    let target_val = normalize_value_with_empty_vs_null(
+                        target_val_raw,
+                        case_sensitive,
+                        ignore_whitespace,
+                        ignore_empty_vs_null
+                    );
+
+                    if source_val != target_val {
+                        let diffs = diff_text_internal(source_val_raw, target_val_raw, case_sensitive);
+
+                        differences.push(Difference {
+                            column: header.clone(),
+                            old_value: source_val_raw.to_string(),
+                            new_value: target_val_raw.to_string(),
+                            diff: diffs,
+                        });
+                    }
+                }
+
+                if !differences.is_empty() {
+                    modified.push(ModifiedRow {
+                        key: key.clone(),
+                        source_row: record_to_hashmap(source_row, &source_headers),
+                        target_row: record_to_hashmap(target_row, &target_headers),
+                        differences,
+                    });
+                } else {
+                    unchanged.push(UnchangedRow {
+                        key: key.clone(),
+                        row: record_to_hashmap(source_row, &source_headers),
+                    });
+                }
+            }
+        }
+    }
+
+    // On the last chunk, add removed rows
+    if chunk_end >= target_map.len() {
+        on_progress(95.0, "Finding removed rows...");
+        for (key, &row_idx) in &source_map {
+            if !target_map.contains_key(key) {
+                removed.push(RemovedRow {
+                    key: key.clone(),
+                    source_row: record_to_hashmap(&source_rows[row_idx], &source_headers),
+                });
+            }
+        }
+    }
+
+    on_progress(100.0, "Chunk complete");
+
+    // Return minimal metadata on chunks, full metadata only on last chunk
+    let (source_meta, target_meta) = if chunk_end >= target_map.len() {
+        (
+            DatasetMetadata {
+                headers: source_headers.clone(),
+                rows: vec![],
+            },
+            DatasetMetadata {
+                headers: target_headers.clone(),
+                rows: vec![],
+            },
+        )
+    } else {
+        (
+            DatasetMetadata {
+                headers: source_headers.clone(),
+                rows: vec![],
+            },
+            DatasetMetadata {
+                headers: target_headers.clone(),
+                rows: vec![],
+            },
+        )
+    };
+
+    Ok(DiffResult {
+        added,
+        removed,
+        modified,
+        unchanged,
+        source: source_meta,
+        target: target_meta,
+        key_columns,
+        excluded_columns,
+        mode: "primary-key".to_string(),
+    })
+}

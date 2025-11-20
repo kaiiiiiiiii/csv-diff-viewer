@@ -1,6 +1,7 @@
 import init, {
   diff_csv,
   diff_csv_primary_key,
+  diff_csv_primary_key_chunked,
   parse_csv,
 } from '../../src-wasm/pkg/csv_diff_wasm'
 
@@ -96,6 +97,46 @@ ctx.onmessage = async function (e) {
       }
 
       ctx.postMessage({ requestId, type: 'compare-complete', data: results })
+    } else if (type === 'compare-chunked') {
+      const {
+        comparisonMode,
+        keyColumns,
+        caseSensitive,
+        ignoreWhitespace,
+        ignoreEmptyVsNull,
+        excludedColumns,
+        sourceRaw,
+        targetRaw,
+        hasHeaders,
+        chunkStart,
+        chunkSize,
+      } = data
+
+      if (!sourceRaw || !targetRaw) {
+        throw new Error('Raw CSV data is required for comparison.')
+      }
+
+      if (comparisonMode !== 'primary-key') {
+        throw new Error('Chunked processing is only supported for primary-key mode.')
+      }
+
+      emitProgress(0, `Starting chunk ${chunkStart}...`)
+      const results = diff_csv_primary_key_chunked(
+        sourceRaw,
+        targetRaw,
+        keyColumns,
+        caseSensitive,
+        ignoreWhitespace,
+        ignoreEmptyVsNull,
+        excludedColumns,
+        hasHeaders !== false,
+        chunkStart,
+        chunkSize,
+        (percent: number, message: string) => emitProgress(percent, message),
+      )
+      emitProgress(100, `Chunk ${chunkStart} complete`)
+
+      ctx.postMessage({ requestId, type: 'chunk-complete', data: results })
     }
   } catch (error: any) {
     ctx.postMessage({
