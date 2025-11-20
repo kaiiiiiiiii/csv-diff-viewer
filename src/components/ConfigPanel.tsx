@@ -75,9 +75,11 @@ export function ConfigPanel({
               }
               placeholder="e.g. ID, Email"
             />
-            <p className="text-xs text-muted-foreground">
-              Available: {availableColumns.join(', ')}
-            </p>
+            {availableColumns.length !== 0 && (
+              <p className="text-xs text-muted-foreground">
+                Available: {availableColumns.join(', ')}
+              </p>
+            )}
           </div>
         )}
 
@@ -92,9 +94,11 @@ export function ConfigPanel({
             }
             placeholder="e.g. CreatedAt, UpdatedAt"
           />
-          <p className="text-xs text-muted-foreground">
-            Available: {availableColumns.join(', ')}
-          </p>
+          {availableColumns.length !== 0 && (
+            <p className="text-xs text-muted-foreground">
+              Available: {availableColumns.join(', ')}
+            </p>
+          )}
         </div>
 
         <div className="flex items-center justify-between">

@@ -6,26 +6,26 @@ High-performance CSV comparison tool built with **React**, **TypeScript**, and *
 
 ## Architecture & Data Flow
 
-### Hybrid Comparison Engine
+### WASM-First Comparison Engine
 
-Two comparison modes with different execution paths:
+Two comparison modes, both implemented in Rust WASM for performance:
 
-- **Primary Key Mode**: TypeScript in Web Worker. Uses Map-based lookups with parallel batch processing (see `compareByPrimaryKey` in `comparison-engine.ts`). Best for datasets with unique identifiers.
-- **Content Match Mode**: Rust WASM in Web Worker. Uses inverted index and similarity scoring (see `diff_csv_internal` in `src-wasm/src/lib.rs`). Best for heuristic matching without IDs.
-  - **Fallback**: Both modes fall back to TS implementation if raw CSV strings unavailable.
+- **Primary Key Mode**: Uses `diff_csv_primary_key()` in WASM. Map-based lookups for datasets with unique identifiers.
+- **Content Match Mode**: Uses `diff_csv()` in WASM. Inverted index and similarity scoring for heuristic matching without IDs.
+- **Note**: Pure TypeScript fallbacks removed - all comparison now uses Rust WASM.
 
 ### Threading Model
 
-- **Main Thread**: UI rendering, user input, file reading. **NEVER** perform heavy CSV parsing/comparison here.
-- **Web Worker** (`src/workers/csv.worker.ts`): Orchestrates comparison, lazy-loads WASM, communicates progress via callbacks.
+- **Main Thread**: UI rendering, user input, file reading via File API. **NEVER** perform heavy CSV parsing/comparison here.
+- **Web Worker** (`src/workers/csv.worker.ts`): Orchestrates all CSV operations, lazy-loads WASM module, handles progress callbacks.
 
 ### Data Flow Pattern
 
 ```
 UI (useCsvWorker hook)
   → Worker (csv.worker.ts)
-    → WASM (diff_csv/diff_csv_primary_key) OR TS (compareByContent/compareByPrimaryKey)
-      → DiffResult back to UI
+    → WASM (diff_csv/diff_csv_primary_key) 
+      → DiffResult back to UI via structured cloning
 ```
 
 ## Critical Developer Workflows
@@ -34,17 +34,18 @@ UI (useCsvWorker hook)
 
 ```bash
 # Development
-npm run dev                    # Start Vite dev server (port 3000)
+npm run dev                    # Start Vite dev server (port 3000) with TanStack Start
 
 # WASM builds (required after Rust changes)
 npm run build:wasm            # Build Rust → WASM (requires wasm-pack)
-npm run build                 # Full build: WASM → Client
+npm run build                 # Full build: WASM → optimized client bundle
+npm run serve                 # Preview production build locally
 
-# Quality checks
+# Quality checks  
 npm test                      # Run Vitest unit tests
 npm run lint                  # ESLint checks
-npm run format                # Prettier formatting
-npm run check                 # Format + lint fix
+npm run format                # Prettier formatting  
+npm run check                 # Format + lint fix (combined command)
 ```
 
 ### WASM Development
@@ -96,38 +97,40 @@ ctx.onmessage = async function (e) {
 
 ### Performance Optimizations
 
-**Parallel Batch Processing** (`comparison-engine.ts`):
+**WASM-First Processing**:
 
-- Processes data in `BATCH_SIZE * PARALLEL_BATCHES` chunks
-- Uses `Promise.all()` for parallel execution
-- Yields to UI with `setTimeout(r, 0)` for responsiveness
+- All comparison logic moved to Rust WASM for optimal performance
+- Progress reporting via JS callback functions for UI responsiveness
+- Raw CSV strings passed directly to WASM (avoids JS object serialization overhead)
 
 **Virtualized Rendering** (`DiffTable.tsx`):
 
 - Uses `@tanstack/react-virtual` for large datasets
-- Sticky headers with shadow
-- Dynamic row heights (estimateSize: 50px)
+- Sticky headers with shadow effects
+- Dynamic row heights with `estimateSize: 50px`
+- Fullscreen and expanded view modes
 
 **WASM Optimization** (`src-wasm/src/lib.rs`):
 
-- Inverted index for content matching
-- HashMap-based lookups for O(1) access
-- Progress reporting every N iterations
+- Inverted index for content matching (O(1) lookups)
+- HashMap-based primary key matching
+- Chunked progress reporting (every N iterations)
+- Optimized string similarity algorithms
 
 ### Component Architecture
 
 **UI Components** (`src/components/`):
 
-- `DiffTable.tsx`: Virtualized table with fullscreen/expand modes
-- `ConfigPanel.tsx`: Comparison settings (mode, columns, options)
-- `CsvInput.tsx`: File upload and text input
-- Uses **shadcn/ui** components (Button, Card, Input, etc.)
+- `DiffTable.tsx`: Virtualized table with fullscreen/expand modes, uses @tanstack/react-table + @tanstack/react-virtual
+- `ConfigPanel.tsx`: Comparison mode selection, column configuration, match options
+- `CsvInput.tsx`: File upload and direct text input with example data loader
+- Uses **shadcn/ui** + **Radix UI** components (Button, Card, Input, Switch, etc.)
 
 **State Management**:
 
-- Local React state for UI (mode, filters, view options)
-- Web Worker for data processing (never block UI thread)
-- Results cached in refs for scroll position preservation
+- Local React state for UI (comparison mode, filters, view options)
+- Web Worker for all data processing (never block main thread)
+- Results cached in component refs for scroll position preservation
 
 ### Comparison Algorithms
 
@@ -149,12 +152,11 @@ ctx.onmessage = async function (e) {
 ## Critical Files
 
 - **`src/workers/csv.worker.ts`**: Worker orchestration, WASM lazy-loading, progress callbacks
-- **`src/lib/comparison-engine.ts`**: TS comparison algorithms, parallel batch processing
+- **`src/lib/comparison-engine.ts`**: TypeScript type definitions for DiffResult and interfaces
 - **`src-wasm/src/lib.rs`**: Rust WASM implementation, inverted index, similarity matching
 - **`src/hooks/useCsvWorker.ts`**: Worker communication hook, request/response correlation
 - **`src/components/DiffTable.tsx`**: Virtualized table, fullscreen mode, filtering
-- **`vite.config.ts`**: WASM plugin configuration, TanStack Router setup
-- **`docs/wasm-integration.md`**: Detailed WASM architecture documentation
+- **`vite.config.ts`**: WASM plugin configuration, TanStack Start setup
 
 ## Error Handling Patterns
 
