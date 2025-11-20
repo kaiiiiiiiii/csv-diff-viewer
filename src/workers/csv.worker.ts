@@ -1,7 +1,16 @@
 import { parseCSV } from '../lib/csv-parser'
 import { compareByPrimaryKey, compareByContent } from '../lib/comparison-engine'
+import init, { diff_csv } from '../../src-wasm/pkg/csv_diff_wasm'
 
 const ctx: Worker = self as any
+let wasmInitialized = false
+
+async function initWasm() {
+  if (!wasmInitialized) {
+    await init()
+    wasmInitialized = true
+  }
+}
 
 ctx.onmessage = async function (e) {
   const { requestId, type, data } = e.data || {}
@@ -44,6 +53,8 @@ ctx.onmessage = async function (e) {
         caseSensitive,
         ignoreWhitespace,
         excludedColumns,
+        sourceRaw,
+        targetRaw,
       } = data
 
       let results
@@ -58,14 +69,28 @@ ctx.onmessage = async function (e) {
           emitProgress,
         )
       } else {
-        results = await compareByContent(
-          source,
-          target,
-          caseSensitive,
-          ignoreWhitespace,
-          excludedColumns,
-          emitProgress,
-        )
+        // Use WASM if raw data is available and we are in content match mode
+        if (sourceRaw && targetRaw) {
+          await initWasm()
+          emitProgress(0, 'Starting WASM comparison...')
+          results = diff_csv(
+            sourceRaw,
+            targetRaw,
+            caseSensitive,
+            ignoreWhitespace,
+            excludedColumns,
+          )
+          emitProgress(100, 'WASM comparison complete')
+        } else {
+          results = await compareByContent(
+            source,
+            target,
+            caseSensitive,
+            ignoreWhitespace,
+            excludedColumns,
+            emitProgress,
+          )
+        }
       }
 
       ctx.postMessage({ requestId, type: 'compare-complete', data: results })

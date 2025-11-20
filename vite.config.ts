@@ -5,10 +5,14 @@ import viteReact from '@vitejs/plugin-react'
 import viteTsConfigPaths from 'vite-tsconfig-paths'
 import tailwindcss from '@tailwindcss/vite'
 import { nitro } from 'nitro/vite'
+import wasm from 'vite-plugin-wasm'
+// import topLevelAwait from 'vite-plugin-top-level-await'
 
 const config = defineConfig({
   base: '/csv-diff-viewer/',
   plugins: [
+    wasm(),
+    // topLevelAwait(),
     devtools(),
     nitro(),
     // this is the plugin that enables path aliases

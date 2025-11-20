@@ -129,6 +129,8 @@ function Index() {
           excludedColumns: excludedColumns.filter(Boolean),
           caseSensitive,
           ignoreWhitespace,
+          sourceRaw: sourceData.text,
+          targetRaw: targetData.text,
         },
         (percent, message) => setProgress({ percent, message }),
       )
