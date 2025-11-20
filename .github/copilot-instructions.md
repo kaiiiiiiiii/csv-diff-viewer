@@ -24,7 +24,7 @@ Two comparison modes, both implemented in Rust WASM for performance:
 ```
 UI (useCsvWorker hook)
   → Worker (csv.worker.ts)
-    → WASM (diff_csv/diff_csv_primary_key) 
+    → WASM (diff_csv/diff_csv_primary_key)
       → DiffResult back to UI via structured cloning
 ```
 
@@ -41,10 +41,10 @@ npm run build:wasm            # Build Rust → WASM (requires wasm-pack)
 npm run build                 # Full build: WASM → optimized client bundle
 npm run serve                 # Preview production build locally
 
-# Quality checks  
+# Quality checks
 npm test                      # Run Vitest unit tests
 npm run lint                  # ESLint checks
-npm run format                # Prettier formatting  
+npm run format                # Prettier formatting
 npm run check                 # Format + lint fix (combined command)
 ```
 
