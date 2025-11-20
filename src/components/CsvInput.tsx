@@ -6,15 +6,22 @@ import { Upload } from 'lucide-react'
 
 interface CsvInputProps {
   title: string
+  value?: string
   onDataChange: (data: string, name: string) => void
 }
 
-export function CsvInput({ title, onDataChange }: CsvInputProps) {
-  const [text, setText] = useState('')
+export function CsvInput({ title, value, onDataChange }: CsvInputProps) {
+  const [text, setText] = useState(value || '')
   const [fileName, setFileName] = useState('')
   const [isLargeFile, setIsLargeFile] = useState(false)
   const [fileSize, setFileSize] = useState(0)
   const [pendingContent, setPendingContent] = useState<string | null>(null)
+
+  React.useEffect(() => {
+    if (value !== undefined) {
+      setText(value)
+    }
+  }, [value])
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes'

@@ -128,13 +128,15 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
               info.getValue() === 'added'
                 ? 'default'
                 : info.getValue() === 'removed'
-                  ? 'destructive'
+                  ? 'default'
                   : info.getValue() === 'modified'
                     ? 'secondary'
                     : 'outline'
             }
             className={cn(
               info.getValue() === 'added' && 'bg-green-500 hover:bg-green-600',
+              info.getValue() === 'removed' &&
+                'bg-red-500 hover:bg-red-600 text-white',
               info.getValue() === 'modified' &&
                 'bg-yellow-500 hover:bg-yellow-600 text-white',
             )}
@@ -239,11 +241,12 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
               Added ({counts.added})
             </Badge>
             <Badge
-              variant={activeFilter === 'removed' ? 'destructive' : 'outline'}
+              variant={activeFilter === 'removed' ? 'default' : 'outline'}
               className={cn(
                 'cursor-pointer transition-colors',
-                activeFilter !== 'removed' &&
-                  'hover:bg-red-100 hover:text-red-800 hover:border-red-200',
+                activeFilter === 'removed'
+                  ? 'bg-red-500 hover:bg-red-600 text-white'
+                  : 'hover:bg-red-100 hover:text-red-800 hover:border-red-200',
                 counts.removed === 0 &&
                   'opacity-50 cursor-not-allowed hover:bg-transparent hover:text-foreground hover:border-border',
               )}
@@ -252,7 +255,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
               Removed ({counts.removed})
             </Badge>
             <Badge
-              variant={activeFilter === 'modified' ? 'secondary' : 'outline'}
+              variant={activeFilter === 'modified' ? 'default' : 'outline'}
               className={cn(
                 'cursor-pointer transition-colors',
                 activeFilter === 'modified'

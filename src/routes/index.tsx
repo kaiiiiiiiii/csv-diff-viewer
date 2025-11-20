@@ -9,6 +9,18 @@ import { Button } from '@/components/ui/button'
 import { Loader2 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 
+const EXAMPLE_SOURCE = `id,name,role,department
+1,John Doe,Developer,Engineering
+2,Jane Smith,Designer,Design
+3,Bob Wilson,Manager,Sales
+4,Alice Brown,Developer,Engineering`
+
+const EXAMPLE_TARGET = `id,name,role,department
+1,John Doe,Senior Developer,Engineering
+2,Jane Smith,Designer,Design
+3,Bob Wilson,Director,Sales
+5,Charlie Davis,Manager,Marketing`
+
 export const Route = createFileRoute('/')({
   component: Index,
 })
@@ -67,6 +79,11 @@ function Index() {
     setTargetData({ text, name })
   }
 
+  const handleLoadExample = () => {
+    handleSourceChange(EXAMPLE_SOURCE, 'example_source.csv')
+    handleTargetChange(EXAMPLE_TARGET, 'example_target.csv')
+  }
+
   const handleCompare = async () => {
     if (!sourceData || !targetData) return
 
@@ -114,10 +131,21 @@ function Index() {
         <p className="text-muted-foreground">
           Compare CSV files with high performance
         </p>
+        <Button variant="outline" onClick={handleLoadExample}>
+          Load Example Data
+        </Button>
       </div>
       <div className="grid md:grid-cols-2 gap-6">
-        <CsvInput title="Source CSV (Old)" onDataChange={handleSourceChange} />
-        <CsvInput title="Target CSV (New)" onDataChange={handleTargetChange} />
+        <CsvInput
+          title="Source CSV (Old)"
+          onDataChange={handleSourceChange}
+          value={sourceData?.text}
+        />
+        <CsvInput
+          title="Target CSV (New)"
+          onDataChange={handleTargetChange}
+          value={targetData?.text}
+        />
       </div>
       <ConfigPanel
         mode={mode}
