@@ -62,8 +62,8 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
   // 2. Define Columns
   const columns = useMemo<Array<ColumnDef<DiffRow>>>(() => {
     const headers = (() => {
-      const sourceHeaders = results.source.headers || []
-      const targetHeaders = results.target.headers || []
+      const sourceHeaders = results.source.headers
+      const targetHeaders = results.target.headers
 
       // Create a union of headers while preserving order as much as possible
       const headerSet = new Set(targetHeaders)

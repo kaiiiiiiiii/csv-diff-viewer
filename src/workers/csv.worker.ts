@@ -1,8 +1,7 @@
-import { parseCSV } from '../lib/csv-parser'
-import { compareByContent, compareByPrimaryKey } from '../lib/comparison-engine'
 import init, {
   diff_csv,
   diff_csv_primary_key,
+  parse_csv,
 } from '../../src-wasm/pkg/csv_diff_wasm'
 
 const ctx: Worker = self as any
@@ -39,9 +38,11 @@ ctx.onmessage = async function (e) {
   }
 
   try {
+    await initWasm()
+
     if (type === 'parse') {
       const { csvText, name, hasHeaders } = data
-      const result = await parseCSV(csvText, hasHeaders !== false)
+      const result = parse_csv(csvText, hasHeaders !== false)
       ctx.postMessage({
         requestId,
         type: 'parse-complete',
@@ -49,8 +50,6 @@ ctx.onmessage = async function (e) {
       })
     } else if (type === 'compare') {
       const {
-        source,
-        target,
         comparisonMode,
         keyColumns,
         caseSensitive,
@@ -61,60 +60,36 @@ ctx.onmessage = async function (e) {
         hasHeaders,
       } = data
 
+      if (!sourceRaw || !targetRaw) {
+        throw new Error('Raw CSV data is required for comparison.')
+      }
+
       let results
       if (comparisonMode === 'primary-key') {
-        if (sourceRaw && targetRaw) {
-          await initWasm()
-          emitProgress(0, 'Starting WASM comparison (Primary Key)...')
-          results = diff_csv_primary_key(
-            sourceRaw,
-            targetRaw,
-            keyColumns,
-            caseSensitive,
-            ignoreWhitespace,
-            excludedColumns,
-            hasHeaders !== false,
-            (percent: number, message: string) =>
-              emitProgress(percent, message),
-          )
-          emitProgress(100, 'WASM comparison complete')
-        } else {
-          results = await compareByPrimaryKey(
-            source,
-            target,
-            keyColumns,
-            caseSensitive,
-            ignoreWhitespace,
-            excludedColumns,
-            emitProgress,
-          )
-        }
+        emitProgress(0, 'Starting WASM comparison (Primary Key)...')
+        results = diff_csv_primary_key(
+          sourceRaw,
+          targetRaw,
+          keyColumns,
+          caseSensitive,
+          ignoreWhitespace,
+          excludedColumns,
+          hasHeaders !== false,
+          (percent: number, message: string) => emitProgress(percent, message),
+        )
+        emitProgress(100, 'WASM comparison complete')
       } else {
-        // Use WASM if raw data is available and we are in content match mode
-        if (sourceRaw && targetRaw) {
-          await initWasm()
-          emitProgress(0, 'Starting WASM comparison...')
-          results = diff_csv(
-            sourceRaw,
-            targetRaw,
-            caseSensitive,
-            ignoreWhitespace,
-            excludedColumns,
-            hasHeaders !== false,
-            (percent: number, message: string) =>
-              emitProgress(percent, message),
-          )
-          emitProgress(100, 'WASM comparison complete')
-        } else {
-          results = await compareByContent(
-            source,
-            target,
-            caseSensitive,
-            ignoreWhitespace,
-            excludedColumns,
-            emitProgress,
-          )
-        }
+        emitProgress(0, 'Starting WASM comparison...')
+        results = diff_csv(
+          sourceRaw,
+          targetRaw,
+          caseSensitive,
+          ignoreWhitespace,
+          excludedColumns,
+          hasHeaders !== false,
+          (percent: number, message: string) => emitProgress(percent, message),
+        )
+        emitProgress(100, 'WASM comparison complete')
       }
 
       ctx.postMessage({ requestId, type: 'compare-complete', data: results })

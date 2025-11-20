@@ -6,6 +6,13 @@ use js_sys::Function;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ParseResult {
+    headers: Vec<String>,
+    rows: Vec<HashMap<String, String>>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DiffResult {
     added: Vec<AddedRow>,
     removed: Vec<RemovedRow>,
@@ -90,7 +97,17 @@ fn get_row_fingerprint(
         .join("||")
 }
 
-fn parse_csv(
+#[wasm_bindgen]
+pub fn parse_csv(csv_content: &str, has_headers: bool) -> Result<JsValue, JsValue> {
+    let (headers, rows) = parse_csv_internal(csv_content, has_headers)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let result = ParseResult { headers, rows };
+    let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+    Ok(result.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))?)
+}
+
+fn parse_csv_internal(
     csv_content: &str,
     has_headers: bool,
 ) -> Result<(Vec<String>, Vec<HashMap<String, String>>), Box<dyn std::error::Error>> {
@@ -155,10 +172,10 @@ where
     F: FnMut(f64, &str),
 {
     on_progress(0.0, "Parsing source CSV...");
-    let (source_headers, source_rows) = parse_csv(source_csv, has_headers)?;
+    let (source_headers, source_rows) = parse_csv_internal(source_csv, has_headers)?;
 
     on_progress(10.0, "Parsing target CSV...");
-    let (target_headers, target_rows) = parse_csv(target_csv, has_headers)?;
+    let (target_headers, target_rows) = parse_csv_internal(target_csv, has_headers)?;
 
     // Validation of key columns
     for key in &key_columns {
@@ -373,10 +390,10 @@ where
     F: FnMut(f64, &str),
 {
     on_progress(0.0, "Parsing source CSV...");
-    let (source_headers, source_rows) = parse_csv(source_csv, has_headers)?;
+    let (source_headers, source_rows) = parse_csv_internal(source_csv, has_headers)?;
 
     on_progress(10.0, "Parsing target CSV...");
-    let (target_headers_orig, target_rows_orig) = parse_csv(target_csv, has_headers)?;
+    let (target_headers_orig, target_rows_orig) = parse_csv_internal(target_csv, has_headers)?;
 
     // Align target rows to source headers if headers differ but counts match
     // This handles cases where headers are missing or different (e.g. data-as-headers)
