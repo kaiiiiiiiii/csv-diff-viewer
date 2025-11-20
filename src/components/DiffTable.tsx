@@ -1,28 +1,27 @@
 import { useMemo, useRef, useState } from 'react'
 import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  getFilteredRowModel,
   flexRender,
-  ColumnDef,
-  SortingState,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getSortedRowModel,
+  useReactTable,
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { ArrowUpDown, Expand, Maximize2, Minimize2, Shrink } from 'lucide-react'
+import FullScreen from 'react-fullscreen-crossbrowser'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import { ArrowUpDown, Maximize2, Minimize2, Expand, Shrink } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import FullScreen from 'react-fullscreen-crossbrowser'
 
 interface DiffResult {
-  added: any[]
-  removed: any[]
-  modified: any[]
-  unchanged: any[]
-  source: { headers: string[] }
-  target: { headers: string[] }
+  added: Array<any>
+  removed: Array<any>
+  modified: Array<any>
+  unchanged: Array<any>
+  source: { headers: Array<string> }
+  target: { headers: Array<string> }
 }
 
 interface DiffTableProps {
@@ -46,7 +45,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
 
   // 1. Prepare Data
   const data = useMemo(() => {
-    const allRows: DiffRow[] = []
+    const allRows: Array<DiffRow> = []
 
     allRows.push(...results.modified.map((r) => ({ ...r, type: 'modified' })))
     allRows.push(...results.added.map((r) => ({ ...r, type: 'added' })))
@@ -61,64 +60,75 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
   }, [results, showOnlyDiffs])
 
   // 2. Define Columns
-  const columns = useMemo<ColumnDef<DiffRow>[]>(() => {
+  const columns = useMemo<Array<ColumnDef<DiffRow>>>(() => {
     const headers =
       results.target.headers.length > 0
         ? results.target.headers
         : results.source.headers
 
-    const dynamicCols: ColumnDef<DiffRow>[] = headers.map((header) => ({
-      id: header,
-      accessorFn: (row) => {
-        if (row.type === 'added') return row.targetRow[header]
-        if (row.type === 'removed') return row.sourceRow[header]
-        if (row.type === 'unchanged') return row.row[header]
-        if (row.type === 'modified') return row.targetRow[header]
-        return ''
-      },
-      header: ({ column }) => {
-        return (
-          <div
-            className="flex items-center cursor-pointer select-none hover:text-foreground"
-            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          >
-            {header}
-            <ArrowUpDown className="ml-2 h-4 w-4" />
-          </div>
-        )
-      },
-      cell: (info) => {
-        const row = info.row.original
-        const value = info.getValue() as string
+    const dynamicCols: Array<ColumnDef<DiffRow>> = headers.map(
+      (header, index) => ({
+        id: `${header}_${index}`,
+        accessorFn: (row) => {
+          if (row.type === 'added') return row.targetRow[header]
+          if (row.type === 'removed') return row.sourceRow[header]
+          if (row.type === 'unchanged') return row.row[header]
+          if (row.type === 'modified') return row.targetRow[header]
+          return ''
+        },
+        header: ({ column }) => {
+          return (
+            <div
+              className="flex items-center cursor-pointer select-none hover:text-foreground"
+              onClick={() =>
+                column.toggleSorting(column.getIsSorted() === 'asc')
+              }
+            >
+              {header}
+              <ArrowUpDown className="ml-2 h-4 w-4" />
+            </div>
+          )
+        },
+        cell: (info) => {
+          const row = info.row.original
+          const value = info.getValue() as string | null | undefined
 
-        if (row.type === 'modified') {
-          const diff = row.differences?.find((d: any) => d.column === header)
-          if (diff) {
-            return (
-              <div className="flex flex-col gap-1 text-xs">
-                <span className="line-through text-red-500 opacity-70">
-                  {diff.oldValue}
-                </span>
-                <span className="text-green-600 font-medium">
-                  {diff.newValue}
-                </span>
-              </div>
-            )
+          if (row.type === 'modified') {
+            const diff = row.differences?.find((d: any) => d.column === header)
+            if (diff) {
+              return (
+                <div className="flex flex-col gap-1 text-xs">
+                  <span className="line-through text-red-500 opacity-70">
+                    {diff.oldValue}
+                  </span>
+                  <span className="text-green-600 font-medium">
+                    {diff.newValue}
+                  </span>
+                </div>
+              )
+            }
           }
-        }
-        return (
-          <span
-            className="whitespace-nowrap max-w-[300px] overflow-hidden text-ellipsis block"
-            title={String(value)}
-          >
-            {String(value ?? '')}
-          </span>
-        )
-      },
-    }))
+
+          // Debug logging for modified rows with missing values
+          if (row.type === 'modified' && (value === undefined || value === null || value === '')) {
+             // console.log('Missing value for modified row:', { header, row, value });
+          }
+
+          return (
+            <span
+              className="whitespace-nowrap max-w-[300px] overflow-hidden text-ellipsis block"
+              title={String(value)}
+            >
+              {String(value ?? '')}
+            </span>
+          )
+        },
+      }),
+    )
 
     return [
       {
+        id: '__diff_type__',
         accessorKey: 'type',
         header: 'Type',
         size: 100,
@@ -153,6 +163,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
   const table = useReactTable({
     data,
     columns,
+    getRowId: (row, index) => String(index),
     state: {
       sorting,
       globalFilter,
@@ -169,17 +180,15 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
   const counts = useMemo(() => {
     const c = { added: 0, removed: 0, modified: 0, unchanged: 0 }
     rows.forEach((row) => {
-      const type = (row.original as any).type as keyof typeof c
-      if (c[type] !== undefined) {
-        c[type]++
-      }
+      const type = row.original.type as keyof typeof c
+      c[type]++
     })
     return c
   }, [rows])
 
   const filteredRows = useMemo(() => {
     if (activeFilter === 'all') return rows
-    return rows.filter((row) => (row.original as any).type === activeFilter)
+    return rows.filter((row) => row.original.type === activeFilter)
   }, [rows, activeFilter])
 
   // 4. Initialize Virtualizer
@@ -213,7 +222,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
         <div className="flex items-center py-2 gap-2">
           <Input
             placeholder="Filter all columns..."
-            value={globalFilter ?? ''}
+            value={globalFilter}
             onChange={(event) => setGlobalFilter(event.target.value)}
             className="max-w-sm"
           />
@@ -348,7 +357,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
                 )}
                 {virtualItems.map((virtualRow) => {
                   const row = filteredRows[virtualRow.index]
-                  const rowType = (row.original as any).type
+                  const rowType = row.original.type
 
                   return (
                     <tr

@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { FileSpreadsheet, Loader2 } from 'lucide-react'
 import { useCsvWorker } from '@/hooks/useCsvWorker'
 import { CsvInput } from '@/components/CsvInput'
 import { ConfigPanel } from '@/components/ConfigPanel'
@@ -7,7 +8,6 @@ import { DiffStats } from '@/components/DiffStats'
 import { DiffTable } from '@/components/DiffTable'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, FileSpreadsheet } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { ModeToggle } from '@/components/mode-toggle'
 import {
@@ -56,8 +56,8 @@ function Index() {
   const [mode, setMode] = useState<'primary-key' | 'content-match'>(
     'primary-key',
   )
-  const [keyColumns, setKeyColumns] = useState<string[]>([])
-  const [excludedColumns, setExcludedColumns] = useState<string[]>([])
+  const [keyColumns, setKeyColumns] = useState<Array<string>>([])
+  const [excludedColumns, setExcludedColumns] = useState<Array<string>>([])
   const [hasHeaders, setHasHeaders] = useState(true)
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(true)
   const [caseSensitive, setCaseSensitive] = useState(false)
@@ -70,7 +70,7 @@ function Index() {
   } | null>(null)
   const [showOnlyDiffs, setShowOnlyDiffs] = useState(false)
 
-  const [availableColumns, setAvailableColumns] = useState<string[]>([])
+  const [availableColumns, setAvailableColumns] = useState<Array<string>>([])
   const resultsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -131,6 +131,7 @@ function Index() {
           ignoreWhitespace,
           sourceRaw: sourceData.text,
           targetRaw: targetData.text,
+          hasHeaders,
         },
         (percent, message) => setProgress({ percent, message }),
       )

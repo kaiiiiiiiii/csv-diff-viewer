@@ -9,8 +9,7 @@ export function ModeToggle() {
     const isDark = document.documentElement.classList.contains('dark')
     const nextTheme = isDark ? 'light' : 'dark'
 
-    // @ts-ignore
-    if (!document.startViewTransition) {
+    if (!(document as any).startViewTransition) {
       setTheme(nextTheme)
       return
     }
@@ -22,8 +21,7 @@ export function ModeToggle() {
       Math.max(y, window.innerHeight - y),
     )
 
-    // @ts-ignore
-    const transition = document.startViewTransition(() => {
+    const transition = (document as any).startViewTransition(() => {
       setTheme(nextTheme)
     })
 

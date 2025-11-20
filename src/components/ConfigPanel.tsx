@@ -12,17 +12,17 @@ import { Input } from '@/components/ui/input'
 interface ConfigPanelProps {
   mode: 'primary-key' | 'content-match'
   setMode: (mode: 'primary-key' | 'content-match') => void
-  keyColumns: string[]
-  setKeyColumns: (keys: string[]) => void
-  excludedColumns: string[]
-  setExcludedColumns: (cols: string[]) => void
+  keyColumns: Array<string>
+  setKeyColumns: (keys: Array<string>) => void
+  excludedColumns: Array<string>
+  setExcludedColumns: (cols: Array<string>) => void
   hasHeaders: boolean
   setHasHeaders: (val: boolean) => void
   ignoreWhitespace: boolean
   setIgnoreWhitespace: (val: boolean) => void
   caseSensitive: boolean
   setCaseSensitive: (val: boolean) => void
-  availableColumns: string[]
+  availableColumns: Array<string>
 }
 
 export function ConfigPanel({

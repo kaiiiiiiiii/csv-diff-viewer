@@ -1,5 +1,5 @@
 import { parseCSV } from '../lib/csv-parser'
-import { compareByPrimaryKey, compareByContent } from '../lib/comparison-engine'
+import { compareByContent, compareByPrimaryKey } from '../lib/comparison-engine'
 import init, { diff_csv } from '../../src-wasm/pkg/csv_diff_wasm'
 
 const ctx: Worker = self as any
@@ -55,6 +55,7 @@ ctx.onmessage = async function (e) {
         excludedColumns,
         sourceRaw,
         targetRaw,
+        hasHeaders,
       } = data
 
       let results
@@ -79,6 +80,9 @@ ctx.onmessage = async function (e) {
             caseSensitive,
             ignoreWhitespace,
             excludedColumns,
+            hasHeaders !== false,
+            (percent: number, message: string) =>
+              emitProgress(percent, message),
           )
           emitProgress(100, 'WASM comparison complete')
         } else {

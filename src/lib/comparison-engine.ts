@@ -1,14 +1,15 @@
-import { diffWords, Change } from 'diff'
+import { diffWords } from 'diff'
+import type { Change } from 'diff';
 
 export interface DiffResult {
-  added: any[]
-  removed: any[]
-  modified: any[]
-  unchanged: any[]
-  source: { headers: string[]; rows: any[] }
-  target: { headers: string[]; rows: any[] }
-  keyColumns: string[]
-  excludedColumns: string[]
+  added: Array<any>
+  removed: Array<any>
+  modified: Array<any>
+  unchanged: Array<any>
+  source: { headers: Array<string>; rows: Array<any> }
+  target: { headers: Array<string>; rows: Array<any> }
+  keyColumns: Array<string>
+  excludedColumns: Array<string>
   mode: 'primary-key' | 'content-match'
 }
 
@@ -31,7 +32,7 @@ function computeDiff(
   newVal: any,
   caseSensitive: boolean,
   ignoreWhitespace: boolean,
-): Change[] {
+): Array<Change> {
   let str1 = oldVal === null || oldVal === undefined ? '' : String(oldVal)
   let str2 = newVal === null || newVal === undefined ? '' : String(newVal)
 
@@ -43,16 +44,16 @@ function computeDiff(
   return diffWords(str1, str2, { ignoreCase: !caseSensitive })
 }
 
-function getRowKey(row: any, keyColumns: string[]): string {
+function getRowKey(row: any, keyColumns: Array<string>): string {
   return keyColumns.map((col) => row[col] || '').join('|')
 }
 
 function getRowFingerprint(
   row: any,
-  headers: string[],
+  headers: Array<string>,
   caseSensitive: boolean,
   ignoreWhitespace: boolean,
-  excludedColumns: string[] = [],
+  excludedColumns: Array<string> = [],
 ): string {
   return headers
     .filter((h) => !excludedColumns.includes(h))
@@ -63,10 +64,10 @@ function getRowFingerprint(
 function findBestMatch(
   sourceRow: any,
   targetRows: IterableIterator<any>,
-  headers: string[],
+  headers: Array<string>,
   caseSensitive: boolean,
   ignoreWhitespace: boolean,
-  excludedColumns: string[] = [],
+  excludedColumns: Array<string> = [],
 ) {
   let bestMatch = null
   let bestScore = 0
@@ -123,12 +124,12 @@ function findBestMatch(
 }
 
 export function compareByPrimaryKey(
-  source: { headers: string[]; rows: any[] },
-  target: { headers: string[]; rows: any[] },
-  keyColumns: string[],
+  source: { headers: Array<string>; rows: Array<any> },
+  target: { headers: Array<string>; rows: Array<any> },
+  keyColumns: Array<string>,
   caseSensitive: boolean,
   ignoreWhitespace: boolean,
-  excludedColumns: string[] = [],
+  excludedColumns: Array<string> = [],
   progressCallback: ProgressCallback | null = null,
 ): Promise<DiffResult> {
   // Validate key columns
@@ -341,9 +342,9 @@ export function compareByPrimaryKey(
             batchPromises.push(
               Promise.resolve().then(() => {
                 const batchResults: {
-                  added: any[]
-                  modified: any[]
-                  unchanged: any[]
+                  added: Array<any>
+                  modified: Array<any>
+                  unchanged: Array<any>
                 } = { added: [], modified: [], unchanged: [] }
 
                 batchKeys.forEach((key) => {
@@ -353,7 +354,7 @@ export function compareByPrimaryKey(
                     batchResults.added.push({ key, targetRow })
                   } else {
                     const sourceRow = sourceMap.get(key)
-                    const differences: any[] = []
+                    const differences: Array<any> = []
 
                     source.headers.forEach((header) => {
                       if (excludedColumns.includes(header)) return
@@ -437,11 +438,11 @@ export function compareByPrimaryKey(
 }
 
 export function compareByContent(
-  source: { headers: string[]; rows: any[] },
-  target: { headers: string[]; rows: any[] },
+  source: { headers: Array<string>; rows: Array<any> },
+  target: { headers: Array<string>; rows: Array<any> },
   caseSensitive: boolean,
   ignoreWhitespace: boolean,
-  excludedColumns: string[] = [],
+  excludedColumns: Array<string> = [],
   progressCallback: ProgressCallback | null = null,
 ): Promise<DiffResult> {
   return new Promise((resolve) => {
@@ -464,7 +465,7 @@ export function compareByContent(
         unmatchedTargetMap.set(index, row)
       })
 
-      const unmatchedSourceRows: any[] = []
+      const unmatchedSourceRows: Array<any> = []
       let rowCounter = 1
 
       const BATCH_SIZE = 100 // Smaller batch for content matching due to O(n*m) complexity
@@ -498,7 +499,7 @@ export function compareByContent(
             }
           } else if (match && match.score > 0.5) {
             const key = `Row ${rowCounter}`
-            const differences: any[] = []
+            const differences: Array<any> = []
 
             source.headers.forEach((header) => {
               if (excludedColumns.includes(header)) return
