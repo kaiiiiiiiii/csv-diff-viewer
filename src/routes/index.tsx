@@ -6,8 +6,16 @@ import { ConfigPanel } from '@/components/ConfigPanel'
 import { DiffStats } from '@/components/DiffStats'
 import { DiffTable } from '@/components/DiffTable'
 import { Button } from '@/components/ui/button'
-import { Loader2 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Loader2, FileSpreadsheet } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
+import { ModeToggle } from '@/components/mode-toggle'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 const EXAMPLE_SOURCE = `id,name,role,department
 1,John Doe,Developer,Engineering
@@ -126,23 +134,41 @@ function Index() {
 
   return (
     <div className="container mx-auto py-8 space-y-8">
+      <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={handleLoadExample}>
+                <FileSpreadsheet className="h-[1.2rem] w-[1.2rem]" />
+                <span className="sr-only">Load Example Data</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Load Example Data</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <ModeToggle />
+      </div>
       <div className="text-center space-y-2">
         <h1 className="text-4xl font-bold tracking-tight">CSV Diff Viewer</h1>
         <p className="text-muted-foreground">
-          Compare CSV files with high performance
+          Compare two CSV files directly in your browser.
         </p>
-        <Button variant="outline" onClick={handleLoadExample}>
-          Load Example Data
-        </Button>
+        <div className="flex justify-center gap-2">
+          <Badge variant="secondary">Fast</Badge>
+          <Badge variant="secondary">Local</Badge>
+          <Badge variant="secondary">Privacy-focused</Badge>
+        </div>
       </div>
       <div className="grid md:grid-cols-2 gap-6">
         <CsvInput
-          title="Source CSV (Old)"
+          title="Source CSV"
           onDataChange={handleSourceChange}
           value={sourceData?.text}
         />
         <CsvInput
-          title="Target CSV (New)"
+          title="Target CSV"
           onDataChange={handleTargetChange}
           value={targetData?.text}
         />
