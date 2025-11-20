@@ -80,18 +80,43 @@ fn normalize_value(value: &str, case_sensitive: bool, ignore_whitespace: bool) -
     val
 }
 
+fn is_empty_or_null(value: &str) -> bool {
+    let v = value.trim();
+    v.is_empty() || v.eq_ignore_ascii_case("null")
+}
+
+fn normalize_value_with_empty_vs_null(
+    value: &str, 
+    case_sensitive: bool, 
+    ignore_whitespace: bool,
+    ignore_empty_vs_null: bool
+) -> String {
+    let mut val = value.to_string();
+    if ignore_whitespace {
+        val = val.trim().to_string();
+    }
+    if !case_sensitive {
+        val = val.to_lowercase();
+    }
+    if ignore_empty_vs_null && is_empty_or_null(&val) {
+        val = "EMPTY_OR_NULL".to_string();
+    }
+    val
+}
+
 fn get_row_fingerprint(
     row: &HashMap<String, String>,
     headers: &[String],
     case_sensitive: bool,
     ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
     excluded_columns: &[String],
 ) -> String {
     headers.iter()
         .filter(|h| !excluded_columns.contains(h))
         .map(|h| {
             let val = row.get(h).map(|s| s.as_str()).unwrap_or("");
-            normalize_value(val, case_sensitive, ignore_whitespace)
+            normalize_value_with_empty_vs_null(val, case_sensitive, ignore_whitespace, ignore_empty_vs_null)
         })
         .collect::<Vec<_>>()
         .join("||")
@@ -164,6 +189,7 @@ fn diff_csv_primary_key_internal<F>(
     key_columns: Vec<String>,
     case_sensitive: bool,
     ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
     excluded_columns: Vec<String>,
     has_headers: bool,
     mut on_progress: F,
@@ -246,15 +272,17 @@ where
                         continue;
                     }
                     
-                    let source_val = normalize_value(
+                    let source_val = normalize_value_with_empty_vs_null(
                         source_row.get(header).map(|s| s.as_str()).unwrap_or(""),
                         case_sensitive,
-                        ignore_whitespace
+                        ignore_whitespace,
+                        ignore_empty_vs_null
                     );
-                    let target_val = normalize_value(
+                    let target_val = normalize_value_with_empty_vs_null(
                         target_row.get(header).map(|s| s.as_str()).unwrap_or(""),
                         case_sensitive,
-                        ignore_whitespace
+                        ignore_whitespace,
+                        ignore_empty_vs_null
                     );
 
                     if source_val != target_val {
@@ -348,6 +376,7 @@ pub fn diff_csv_primary_key(
     key_columns_val: JsValue,
     case_sensitive: bool,
     ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
     excluded_columns_val: JsValue,
     has_headers: bool,
     on_progress: &Function,
@@ -368,6 +397,7 @@ pub fn diff_csv_primary_key(
         key_columns,
         case_sensitive,
         ignore_whitespace,
+        ignore_empty_vs_null,
         excluded_columns,
         has_headers,
         callback
@@ -382,6 +412,7 @@ fn diff_csv_internal<F>(
     target_csv: &str,
     case_sensitive: bool,
     ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
     excluded_columns: Vec<String>,
     has_headers: bool,
     mut on_progress: F,
@@ -434,7 +465,8 @@ where
             row, 
             &source_headers, 
             case_sensitive, 
-            ignore_whitespace, 
+            ignore_whitespace,
+            ignore_empty_vs_null,
             &excluded_columns
         );
         target_fingerprint_lookup.entry(fp).or_default().push(idx);
@@ -465,7 +497,8 @@ where
             source_row, 
             &source_headers, 
             case_sensitive, 
-            ignore_whitespace, 
+            ignore_whitespace,
+            ignore_empty_vs_null,
             &excluded_columns
         );
 
@@ -543,18 +576,18 @@ where
                             continue;
                         }
 
-                        let source_val = normalize_value(
-                            source_row.get(header).map(|s| s.as_str()).unwrap_or(""),
-                            case_sensitive,
-                            ignore_whitespace
-                        );
-                        let target_val = normalize_value(
-                            target_row.get(header).map(|s| s.as_str()).unwrap_or(""),
-                            case_sensitive,
-                            ignore_whitespace
-                        );
-
-                        if source_val != target_val {
+let source_val = normalize_value_with_empty_vs_null(
+                    source_row.get(header).map(|s| s.as_str()).unwrap_or(""),
+                    case_sensitive,
+                    ignore_whitespace,
+                    ignore_empty_vs_null
+                );
+                let target_val = normalize_value_with_empty_vs_null(
+                    target_row.get(header).map(|s| s.as_str()).unwrap_or(""),
+                    case_sensitive,
+                    ignore_whitespace,
+                    ignore_empty_vs_null
+                );                        if source_val != target_val {
                             // Compute word-level diff for highlighting
                             let old_val_str = source_row.get(header).map(|s| s.as_str()).unwrap_or("");
                             let new_val_str = target_row.get(header).map(|s| s.as_str()).unwrap_or("");
@@ -664,6 +697,7 @@ pub fn diff_csv(
     target_csv: &str,
     case_sensitive: bool,
     ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
     excluded_columns_val: JsValue,
     has_headers: bool,
     on_progress: &Function,
@@ -681,6 +715,7 @@ pub fn diff_csv(
         target_csv,
         case_sensitive,
         ignore_whitespace,
+        ignore_empty_vs_null,
         excluded_columns,
         has_headers,
         callback

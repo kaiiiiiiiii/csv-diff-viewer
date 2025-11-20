@@ -54,13 +54,14 @@ function Index() {
   } | null>(null)
 
   const [mode, setMode] = useState<'primary-key' | 'content-match'>(
-    'primary-key',
+    'content-match',
   )
   const [keyColumns, setKeyColumns] = useState<Array<string>>([])
   const [excludedColumns, setExcludedColumns] = useState<Array<string>>([])
   const [hasHeaders, setHasHeaders] = useState(true)
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(true)
   const [caseSensitive, setCaseSensitive] = useState(false)
+  const [ignoreEmptyVsNull, setIgnoreEmptyVsNull] = useState(true)
 
   const [results, setResults] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -129,6 +130,7 @@ function Index() {
           excludedColumns: excludedColumns.filter(Boolean),
           caseSensitive,
           ignoreWhitespace,
+          ignoreEmptyVsNull,
           sourceRaw: sourceData.text,
           targetRaw: targetData.text,
           hasHeaders,
@@ -198,6 +200,8 @@ function Index() {
         setIgnoreWhitespace={setIgnoreWhitespace}
         caseSensitive={caseSensitive}
         setCaseSensitive={setCaseSensitive}
+        ignoreEmptyVsNull={ignoreEmptyVsNull}
+        setIgnoreEmptyVsNull={setIgnoreEmptyVsNull}
         availableColumns={availableColumns}
       />{' '}
       <div className="flex justify-center">

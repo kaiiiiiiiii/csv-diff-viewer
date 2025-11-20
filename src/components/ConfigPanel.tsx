@@ -22,6 +22,8 @@ interface ConfigPanelProps {
   setIgnoreWhitespace: (val: boolean) => void
   caseSensitive: boolean
   setCaseSensitive: (val: boolean) => void
+  ignoreEmptyVsNull: boolean
+  setIgnoreEmptyVsNull: (val: boolean) => void
   availableColumns: Array<string>
 }
 
@@ -38,6 +40,8 @@ export function ConfigPanel({
   setIgnoreWhitespace,
   caseSensitive,
   setCaseSensitive,
+  ignoreEmptyVsNull,
+  setIgnoreEmptyVsNull,
   availableColumns,
 }: ConfigPanelProps) {
   return (
@@ -53,12 +57,8 @@ export function ConfigPanel({
               <SelectValue placeholder="Select mode" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="primary-key">
-                Primary Key (Best for DB dumps)
-              </SelectItem>
-              <SelectItem value="content-match">
-                Content Match (Best for small lists)
-              </SelectItem>
+              <SelectItem value="content-match">Content Match</SelectItem>
+              <SelectItem value="primary-key">Primary Key</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -107,6 +107,11 @@ export function ConfigPanel({
         </div>
 
         <div className="flex items-center justify-between">
+          <label className="text-sm font-medium">Case Sensitive</label>
+          <Switch checked={caseSensitive} onCheckedChange={setCaseSensitive} />
+        </div>
+
+        <div className="flex items-center justify-between">
           <label className="text-sm font-medium">Ignore Whitespace</label>
           <Switch
             checked={ignoreWhitespace}
@@ -115,8 +120,11 @@ export function ConfigPanel({
         </div>
 
         <div className="flex items-center justify-between">
-          <label className="text-sm font-medium">Case Sensitive</label>
-          <Switch checked={caseSensitive} onCheckedChange={setCaseSensitive} />
+          <label className="text-sm font-medium">Ignore Empty vs Null</label>
+          <Switch
+            checked={ignoreEmptyVsNull}
+            onCheckedChange={setIgnoreEmptyVsNull}
+          />
         </div>
       </CardContent>
     </Card>
