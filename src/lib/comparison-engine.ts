@@ -1,5 +1,5 @@
 import { diffWords } from 'diff'
-import type { Change } from 'diff';
+import type { Change } from 'diff'
 
 export interface DiffResult {
   added: Array<any>
@@ -11,6 +11,12 @@ export interface DiffResult {
   keyColumns: Array<string>
   excludedColumns: Array<string>
   mode: 'primary-key' | 'content-match'
+}
+
+export interface DiffChange {
+  added: boolean
+  removed: boolean
+  value: string
 }
 
 export type ProgressCallback = (percent: number, message: string) => void
@@ -42,6 +48,38 @@ function computeDiff(
   }
 
   return diffWords(str1, str2, { ignoreCase: !caseSensitive })
+}
+
+// WASM-enabled version of computeDiff for performance
+export async function computeDiffWasm(
+  oldVal: any,
+  newVal: any,
+  caseSensitive: boolean,
+  ignoreWhitespace: boolean,
+): Promise<Array<DiffChange>> {
+  try {
+    // Dynamic import to avoid dependency issues
+    const wasmModule = await import('../../src-wasm/pkg/csv_diff_wasm')
+
+    let str1 = oldVal === null || oldVal === undefined ? '' : String(oldVal)
+    let str2 = newVal === null || newVal === undefined ? '' : String(newVal)
+
+    if (ignoreWhitespace) {
+      str1 = str1.trim()
+      str2 = str2.trim()
+    }
+
+    // Use WASM for word-level diff
+    return wasmModule.diff_text(str1, str2, caseSensitive)
+  } catch {
+    // Fallback to TypeScript implementation
+    const tsDiff = computeDiff(oldVal, newVal, caseSensitive, ignoreWhitespace)
+    return tsDiff.map((change) => ({
+      added: change.added || false,
+      removed: change.removed || false,
+      value: change.value || '',
+    }))
+  }
 }
 
 function getRowKey(row: any, keyColumns: Array<string>): string {
@@ -123,7 +161,7 @@ function findBestMatch(
   return bestScore > 0.5 ? { row: bestMatch, score: bestScore } : null
 }
 
-export function compareByPrimaryKey(
+export async function compareByPrimaryKey(
   source: { headers: Array<string>; rows: Array<any> },
   target: { headers: Array<string>; rows: Array<any> },
   keyColumns: Array<string>,
@@ -340,14 +378,14 @@ export function compareByPrimaryKey(
             const batchKeys = targetKeys.slice(start, end)
 
             batchPromises.push(
-              Promise.resolve().then(() => {
+              Promise.resolve().then(async () => {
                 const batchResults: {
                   added: Array<any>
                   modified: Array<any>
                   unchanged: Array<any>
                 } = { added: [], modified: [], unchanged: [] }
 
-                batchKeys.forEach((key) => {
+                for (const key of batchKeys) {
                   const targetRow = targetMap.get(key)
 
                   if (!sourceMap.has(key)) {
@@ -356,8 +394,8 @@ export function compareByPrimaryKey(
                     const sourceRow = sourceMap.get(key)
                     const differences: Array<any> = []
 
-                    source.headers.forEach((header) => {
-                      if (excludedColumns.includes(header)) return
+                    for (const header of source.headers) {
+                      if (excludedColumns.includes(header)) continue
 
                       const sourceVal = normalizeValue(
                         sourceRow[header] || '',
@@ -371,33 +409,39 @@ export function compareByPrimaryKey(
                       )
 
                       if (sourceVal !== targetVal) {
-                        const diff = computeDiff(
-                          sourceRow[header],
-                          targetRow[header],
-                          caseSensitive,
-                          ignoreWhitespace,
-                        )
                         differences.push({
                           column: header,
                           oldValue: sourceRow[header] || '',
                           newValue: targetRow[header] || '',
-                          diff,
                         })
                       }
-                    })
+                    }
 
                     if (differences.length > 0) {
+                      // Use WASM for word-level diffs when possible
+                      const enhancedDifferences = await Promise.all(
+                        differences.map(async (diff) => ({
+                          ...diff,
+                          diff: await computeDiffWasm(
+                            diff.oldValue,
+                            diff.newValue,
+                            caseSensitive,
+                            ignoreWhitespace,
+                          ),
+                        })),
+                      )
+
                       batchResults.modified.push({
                         key,
                         sourceRow,
                         targetRow,
-                        differences,
+                        differences: enhancedDifferences,
                       })
                     } else {
                       batchResults.unchanged.push({ key, row: sourceRow })
                     }
                   }
-                })
+                }
 
                 return batchResults
               }),
@@ -437,7 +481,7 @@ export function compareByPrimaryKey(
   })
 }
 
-export function compareByContent(
+export async function compareByContent(
   source: { headers: Array<string>; rows: Array<any> },
   target: { headers: Array<string>; rows: Array<any> },
   caseSensitive: boolean,
@@ -516,26 +560,32 @@ export function compareByContent(
               )
 
               if (sourceVal !== targetVal) {
-                const diff = computeDiff(
-                  sourceRow[header],
-                  match.row[header],
-                  caseSensitive,
-                  ignoreWhitespace,
-                )
                 differences.push({
                   column: header,
                   oldValue: sourceRow[header] || '',
                   newValue: match.row[header] || '',
-                  diff,
                 })
               }
             })
+
+            // Use WASM for word-level diffs when possible
+            const enhancedDifferences = await Promise.all(
+              differences.map(async (diff) => ({
+                ...diff,
+                diff: await computeDiffWasm(
+                  diff.oldValue,
+                  diff.newValue,
+                  caseSensitive,
+                  ignoreWhitespace,
+                ),
+              })),
+            )
 
             results.modified.push({
               key,
               sourceRow,
               targetRow: match.row,
-              differences,
+              differences: enhancedDifferences,
             })
             // Remove from map
             for (const [mapKey, mapRow] of unmatchedTargetMap) {

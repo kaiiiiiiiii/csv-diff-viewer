@@ -108,6 +108,31 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
           if (row.type === 'modified') {
             const diff = row.differences?.find((d: any) => d.column === header)
             if (diff) {
+              // Use enhanced diff from WASM if available
+              if (diff.diff && Array.isArray(diff.diff)) {
+                return (
+                  <div className="flex flex-col gap-1 text-xs">
+                    <div className="flex flex-wrap gap-1">
+                      {diff.diff.map((change: any, idx: number) => (
+                        <span
+                          key={idx}
+                          className={cn(
+                            change.added &&
+                              'bg-green-200 text-green-800 px-1 rounded',
+                            change.removed &&
+                              'bg-red-200 text-red-800 px-1 rounded line-through',
+                            !change.added && !change.removed && 'text-gray-600',
+                          )}
+                        >
+                          {change.value}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )
+              }
+
+              // Fallback to simple display
               return (
                 <div className="flex flex-col gap-1 text-xs">
                   <span className="line-through text-red-500 opacity-70">

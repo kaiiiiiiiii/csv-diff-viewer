@@ -59,7 +59,7 @@ struct Difference {
     column: String,
     old_value: String,
     new_value: String,
-    // We omit detailed diffs for performance, JS side handles simple display
+    diff: Vec<DiffChange>, // Word-level diff for highlighting
 }
 
 fn normalize_value(value: &str, case_sensitive: bool, ignore_whitespace: bool) -> String {
@@ -241,10 +241,47 @@ where
                     );
 
                     if source_val != target_val {
+                        // Compute word-level diff for highlighting
+                        let old_val_str = source_row.get(header).map(|s| s.as_str()).unwrap_or("");
+                        let new_val_str = target_row.get(header).map(|s| s.as_str()).unwrap_or("");
+                        
+                        let changeset = if case_sensitive {
+                            difference::Changeset::new(old_val_str, new_val_str, " ")
+                        } else {
+                            difference::Changeset::new(
+                                &old_val_str.to_lowercase(), 
+                                &new_val_str.to_lowercase(), 
+                                " "
+                            )
+                        };
+
+                        let diffs: Vec<DiffChange> = changeset.diffs.into_iter()
+                            .map(|d| {
+                                match d {
+                                    difference::Difference::Same(val) => DiffChange {
+                                        added: false,
+                                        removed: false,
+                                        value: val.to_string(),
+                                    },
+                                    difference::Difference::Add(val) => DiffChange {
+                                        added: true,
+                                        removed: false,
+                                        value: val.to_string(),
+                                    },
+                                    difference::Difference::Rem(val) => DiffChange {
+                                        added: false,
+                                        removed: true,
+                                        value: val.to_string(),
+                                    },
+                                }
+                            })
+                            .collect();
+
                         differences.push(Difference {
                             column: header.clone(),
                             old_value: source_row.get(header).cloned().unwrap_or_default(),
                             new_value: target_row.get(header).cloned().unwrap_or_default(),
+                            diff: diffs,
                         });
                     }
                 }
@@ -501,10 +538,47 @@ where
                         );
 
                         if source_val != target_val {
+                            // Compute word-level diff for highlighting
+                            let old_val_str = source_row.get(header).map(|s| s.as_str()).unwrap_or("");
+                            let new_val_str = target_row.get(header).map(|s| s.as_str()).unwrap_or("");
+                            
+                            let changeset = if case_sensitive {
+                                difference::Changeset::new(old_val_str, new_val_str, " ")
+                            } else {
+                                difference::Changeset::new(
+                                    &old_val_str.to_lowercase(), 
+                                    &new_val_str.to_lowercase(), 
+                                    " "
+                                )
+                            };
+
+                            let diffs: Vec<DiffChange> = changeset.diffs.into_iter()
+                                .map(|d| {
+                                    match d {
+                                        difference::Difference::Same(val) => DiffChange {
+                                            added: false,
+                                            removed: false,
+                                            value: val.to_string(),
+                                        },
+                                        difference::Difference::Add(val) => DiffChange {
+                                            added: true,
+                                            removed: false,
+                                            value: val.to_string(),
+                                        },
+                                        difference::Difference::Rem(val) => DiffChange {
+                                            added: false,
+                                            removed: true,
+                                            value: val.to_string(),
+                                        },
+                                    }
+                                })
+                                .collect();
+
                             differences.push(Difference {
                                 column: header.clone(),
                                 old_value: source_row.get(header).cloned().unwrap_or_default(),
                                 new_value: target_row.get(header).cloned().unwrap_or_default(),
+                                diff: diffs,
                             });
                         }
                     }
@@ -597,6 +671,56 @@ pub fn diff_csv(
 
     let serializer = serde_wasm_bindgen::Serializer::json_compatible();
     Ok(result.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))?)
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DiffChange {
+    added: bool,
+    removed: bool,
+    value: String,
+}
+
+/// Performs word-level diff between two strings
+/// Similar to JavaScript diffWords function
+#[wasm_bindgen]
+pub fn diff_text(old: &str, new: &str, case_sensitive: bool) -> Result<JsValue, JsValue> {
+    use difference::{Changeset, Difference};
+    
+    let changeset = if case_sensitive {
+        Changeset::new(old, new, " ")
+    } else {
+        Changeset::new(
+            &old.to_lowercase(), 
+            &new.to_lowercase(), 
+            " "
+        )
+    };
+
+    let diffs: Vec<DiffChange> = changeset.diffs.into_iter()
+        .map(|d| {
+            match d {
+                Difference::Same(val) => DiffChange {
+                    added: false,
+                    removed: false,
+                    value: val.to_string(),
+                },
+                Difference::Add(val) => DiffChange {
+                    added: true,
+                    removed: false,
+                    value: val.to_string(),
+                },
+                Difference::Rem(val) => DiffChange {
+                    added: false,
+                    removed: true,
+                    value: val.to_string(),
+                },
+            }
+        })
+        .collect();
+
+    let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+    Ok(diffs.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))?)
 }
 
 #[cfg(test)]
