@@ -109,7 +109,13 @@ export function useChunkedDiff() {
           await indexedDBManager.saveChunk(chunk)
 
           // Yield to browser to prevent UI freeze
-          await new Promise((resolve) => setTimeout(resolve, 0))
+          await new Promise((resolve) => {
+            if ('scheduler' in window && 'postTask' in (window as any).scheduler) {
+              ;(window as any).scheduler.postTask(resolve)
+            } else {
+              queueMicrotask(resolve)
+            }
+          })
         }
 
         // Mark as completed

@@ -134,6 +134,8 @@ class IndexedDBManager {
       const request = index.getAll(IDBKeyRange.only(diffId))
 
       request.onsuccess = () => {
+        // IndexedDB spec guarantees result is defined on success, but TypeScript types allow undefined
+        // We use ?? [] as defensive programming for runtime safety across browser implementations
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         const chunks = request.result ?? []
         // Sort by chunk index
