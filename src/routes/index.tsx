@@ -167,7 +167,7 @@ function Index() {
         <div className="flex justify-center gap-2">
           <Badge variant="secondary">Fast</Badge>
           <Badge variant="secondary">Local</Badge>
-          <Badge variant="secondary">Privacy-focused</Badge>
+          <Badge variant="secondary">Private</Badge>
         </div>
       </div>
       <div className="grid md:grid-cols-2 gap-6">
