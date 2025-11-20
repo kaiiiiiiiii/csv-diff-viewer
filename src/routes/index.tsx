@@ -7,6 +7,7 @@ import { CsvInput } from '@/components/CsvInput'
 import { ConfigPanel } from '@/components/ConfigPanel'
 import { DiffStats } from '@/components/DiffStats'
 import { DiffTable } from '@/components/DiffTable'
+import { StorageMonitor } from '@/components/StorageMonitor'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
@@ -144,12 +145,12 @@ function Index() {
             hasHeaders,
             chunkSize,
           },
-          (progress) => {
+          (chunkProgress) => {
             setProgress({
-              percent: progress.percent,
-              message: progress.message,
-              currentChunk: progress.currentChunk,
-              totalChunks: progress.totalChunks,
+              percent: chunkProgress.percent,
+              message: chunkProgress.message,
+              currentChunk: chunkProgress.currentChunk,
+              totalChunks: chunkProgress.totalChunks,
             })
           },
         )
@@ -247,6 +248,7 @@ function Index() {
         chunkSize={chunkSize}
         setChunkSize={setChunkSize}
       />{' '}
+      {useChunkedMode && <StorageMonitor />}
       <div className="flex justify-center">
         <Button
           size="lg"

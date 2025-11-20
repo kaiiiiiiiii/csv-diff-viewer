@@ -1,14 +1,15 @@
 import { useCallback, useState } from 'react'
+import { indexedDBManager } from '../lib/indexeddb'
 import { useCsvWorker } from './useCsvWorker'
-import { indexedDBManager, DiffChunk, DiffMetadata } from '../lib/indexeddb'
+import type { DiffChunk, DiffMetadata } from '../lib/indexeddb';
 
 export interface ChunkedDiffOptions {
   comparisonMode: 'primary-key' | 'content-match'
-  keyColumns: string[]
+  keyColumns: Array<string>
   caseSensitive: boolean
   ignoreWhitespace: boolean
   ignoreEmptyVsNull: boolean
-  excludedColumns: string[]
+  excludedColumns: Array<string>
   hasHeaders: boolean
   chunkSize?: number // Default: 10000 rows per chunk
 }
@@ -31,8 +32,8 @@ export function useChunkedDiff() {
     async (
       sourceRaw: string,
       targetRaw: string,
-      sourceHeaders: string[],
-      targetHeaders: string[],
+      sourceHeaders: Array<string>,
+      targetHeaders: Array<string>,
       options: ChunkedDiffOptions,
       onProgress?: (progress: ChunkedDiffProgress) => void,
     ): Promise<string> => {
@@ -134,20 +135,20 @@ export function useChunkedDiff() {
     [compareChunked],
   )
 
-  const loadDiffResults = useCallback(async (diffId: string) => {
-    const metadata = await indexedDBManager.getMetadata(diffId)
+  const loadDiffResults = useCallback(async (id: string) => {
+    const metadata = await indexedDBManager.getMetadata(id)
     if (!metadata) {
       throw new Error('Diff not found')
     }
 
-    const chunks = await indexedDBManager.getChunksByDiffId(diffId)
+    const chunks = await indexedDBManager.getChunksByDiffId(id)
     
     // Merge chunks
     const result = {
-      added: [] as any[],
-      removed: [] as any[],
-      modified: [] as any[],
-      unchanged: [] as any[],
+      added: [] as Array<any>,
+      removed: [] as Array<any>,
+      modified: [] as Array<any>,
+      unchanged: [] as Array<any>,
       source: metadata.source,
       target: metadata.target,
       keyColumns: metadata.keyColumns,
@@ -165,9 +166,9 @@ export function useChunkedDiff() {
     return result
   }, [])
 
-  const clearDiff = useCallback(async (diffId: string) => {
-    await indexedDBManager.clearDiff(diffId)
-    if (diffId === diffId) {
+  const clearDiff = useCallback(async (id: string) => {
+    await indexedDBManager.clearDiff(id)
+    if (id === diffId) {
       setDiffId(null)
     }
   }, [diffId])

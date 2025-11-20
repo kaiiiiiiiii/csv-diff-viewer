@@ -125,7 +125,7 @@ class IndexedDBManager {
     })
   }
 
-  async getChunksByDiffId(diffId: string): Promise<DiffChunk[]> {
+  async getChunksByDiffId(diffId: string): Promise<Array<DiffChunk>> {
     const db = await this.init()
     return new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_NAME], 'readonly')
@@ -134,7 +134,8 @@ class IndexedDBManager {
       const request = index.getAll(IDBKeyRange.only(diffId))
 
       request.onsuccess = () => {
-        const chunks = request.result || []
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        const chunks = request.result ?? []
         // Sort by chunk index
         chunks.sort((a, b) => a.chunkIndex - b.chunkIndex)
         resolve(chunks)
@@ -179,19 +180,21 @@ class IndexedDBManager {
   }
 
   async getStorageSize(): Promise<number> {
-    if (!navigator.storage || !navigator.storage.estimate) {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (!navigator.storage?.estimate) {
       return 0
     }
     const estimate = await navigator.storage.estimate()
-    return estimate.usage || 0
+    return estimate.usage ?? 0
   }
 
   async getAvailableStorage(): Promise<number> {
-    if (!navigator.storage || !navigator.storage.estimate) {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (!navigator.storage?.estimate) {
       return 0
     }
     const estimate = await navigator.storage.estimate()
-    return (estimate.quota || 0) - (estimate.usage || 0)
+    return (estimate.quota ?? 0) - (estimate.usage ?? 0)
   }
 }
 
