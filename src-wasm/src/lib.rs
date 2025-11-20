@@ -6,13 +6,18 @@ use wasm_bindgen::prelude::*;
 use serde::Serialize;
 use js_sys::Function;
 use crate::types::ParseResult;
+use crate::utils::record_to_hashmap;
 
 #[wasm_bindgen]
 pub fn parse_csv(csv_content: &str, has_headers: bool) -> Result<JsValue, JsValue> {
-    let (headers, rows) = core::parse_csv_internal(csv_content, has_headers)
+    let (headers, rows, _) = core::parse_csv_internal(csv_content, has_headers)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-    let result = ParseResult { headers, rows };
+    let rows_hashmap: Vec<_> = rows.iter()
+        .map(|r| record_to_hashmap(r, &headers))
+        .collect();
+
+    let result = ParseResult { headers, rows: rows_hashmap };
     let serializer = serde_wasm_bindgen::Serializer::json_compatible();
     Ok(result.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))?)
 }

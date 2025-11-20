@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use csv::StringRecord;
+use ahash::AHashMap;
 
 pub fn normalize_value(value: &str, case_sensitive: bool, ignore_whitespace: bool) -> String {
     let mut val = value.to_string();
@@ -36,8 +38,9 @@ pub fn normalize_value_with_empty_vs_null(
 }
 
 pub fn get_row_fingerprint(
-    row: &HashMap<String, String>,
+    row: &StringRecord,
     headers: &[String],
+    header_map: &AHashMap<String, usize>,
     case_sensitive: bool,
     ignore_whitespace: bool,
     ignore_empty_vs_null: bool,
@@ -46,7 +49,11 @@ pub fn get_row_fingerprint(
     headers.iter()
         .filter(|h| !excluded_columns.contains(h))
         .map(|h| {
-            let val = row.get(h).map(|s| s.as_str()).unwrap_or("");
+            let val = if let Some(&idx) = header_map.get(h) {
+                row.get(idx).unwrap_or("")
+            } else {
+                ""
+            };
             normalize_value_with_empty_vs_null(val, case_sensitive, ignore_whitespace, ignore_empty_vs_null)
         })
         .collect::<Vec<_>>()
@@ -54,11 +61,27 @@ pub fn get_row_fingerprint(
 }
 
 pub fn get_row_key(
-    row: &HashMap<String, String>,
+    row: &StringRecord,
+    header_map: &AHashMap<String, usize>,
     key_columns: &[String],
 ) -> String {
     key_columns.iter()
-        .map(|k| row.get(k).map(|s| s.as_str()).unwrap_or(""))
+        .map(|k| {
+            if let Some(&idx) = header_map.get(k) {
+                row.get(idx).unwrap_or("")
+            } else {
+                ""
+            }
+        })
         .collect::<Vec<_>>()
         .join("|")
+}
+
+pub fn record_to_hashmap(
+    row: &StringRecord,
+    headers: &[String],
+) -> HashMap<String, String> {
+    headers.iter().enumerate()
+        .map(|(i, h)| (h.clone(), row.get(i).unwrap_or("").to_string()))
+        .collect()
 }
