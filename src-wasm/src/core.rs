@@ -299,8 +299,17 @@ where
         }
     }
     
+    // Optimization: Calculate frequency threshold
+    // If a value appears in too many rows, it's not discriminative and causes performance issues.
+    // We skip these "stop words" during similarity search.
+    // let frequency_threshold = (target_rows.len() as f64 * 0.02).max(100.0) as usize;
+
     let mut row_counter = 1;
     let total_rows = source_rows.len();
+    
+    // Reuse map to avoid allocation overhead
+    let mut candidate_scores: AHashMap<usize, usize> = AHashMap::new();
+    let mut row_tokens: Vec<(usize, usize, String)> = Vec::new(); // (count, col_idx, value)
 
     for (i, source_row) in source_rows.iter().enumerate() {
         if i % 100 == 0 {
@@ -335,8 +344,10 @@ where
         }
 
         if !matched_exact {
-            let mut candidate_scores: AHashMap<usize, usize> = AHashMap::new();
+            candidate_scores.clear();
+            row_tokens.clear();
             
+            // 1. Collect tokens and their frequencies
             for (col_idx, header) in source_headers.iter().enumerate() {
                 if excluded_columns.contains(header) {
                     continue;
@@ -349,36 +360,102 @@ where
                         ignore_whitespace
                     );
 
-                    if let Some(target_indices) = inverted_index.get(&(col_idx, source_val)) {
-                        for &target_idx in target_indices {
-                            if unmatched_target_indices.contains(&target_idx) {
-                                *candidate_scores.entry(target_idx).or_default() += 1;
-                            }
-                        }
+                    if let Some(target_indices) = inverted_index.get(&(col_idx, source_val.clone())) {
+                        row_tokens.push((target_indices.len(), col_idx, source_val));
                     }
                 }
             }
 
-            let mut best_match_idx: Option<usize> = None;
-            let mut best_score_count = 0;
+            // 2. Sort by frequency (rarest first)
+            row_tokens.sort_by(|a, b| a.0.cmp(&b.0));
+
+            // 3. Populate candidates with budget
+            let mut budget = 2000; // Max candidate checks per row
             
-            for (&idx, &score) in &candidate_scores {
-                if score > best_score_count {
-                    best_score_count = score;
-                    best_match_idx = Some(idx);
+            for (count, col_idx, val) in &row_tokens {
+                if *count == 0 { continue; }
+                if budget == 0 { break; }
+                
+                // If the next token is too expensive and we already have candidates, stop.
+                // But if we have NO candidates, we must proceed even if expensive (up to a limit).
+                if *count > budget && !candidate_scores.is_empty() {
+                    break;
+                }
+                
+                // Hard limit to prevent massive stalls
+                if *count > 10000 {
+                    break;
+                }
+
+                if let Some(target_indices) = inverted_index.get(&(*col_idx, val.clone())) {
+                    for &target_idx in target_indices {
+                        if unmatched_target_indices.contains(&target_idx) {
+                            *candidate_scores.entry(target_idx).or_default() += 1;
+                        }
+                    }
+                    budget = budget.saturating_sub(*count);
                 }
             }
 
-            let mut final_score = 0.0;
-            if let Some(_) = best_match_idx {
-                let total_fields = source_headers.iter().filter(|h| !excluded_columns.contains(h)).count();
-                if total_fields > 0 {
-                    final_score = best_score_count as f64 / total_fields as f64;
-                }
+            // 4. Find top candidates
+            let mut top_candidates: Vec<(usize, usize)> = candidate_scores.iter().map(|(&k, &v)| (k, v)).collect();
+            // Sort by score descending
+            top_candidates.sort_by(|a, b| b.1.cmp(&a.1));
+            if top_candidates.len() > 10 {
+                top_candidates.truncate(10);
+            }
+
+            // 5. Verify candidates with full row comparison
+            let mut best_match_idx: Option<usize> = None;
+            let mut best_real_score = 0.0;
+
+            for (cand_idx, _) in top_candidates {
+                 let target_row = &target_rows[cand_idx];
+                 let mut match_count = 0;
+                 let mut total_compared = 0;
+                 
+                 for header in &source_headers {
+                     if excluded_columns.contains(header) { continue; }
+                     
+                     let source_idx = source_header_map.get(header).unwrap();
+                     // Find target index
+                     let target_idx = match target_header_map.get(header) {
+                        Some(idx) => idx,
+                        None => continue,
+                     };
+                     
+                     total_compared += 1;
+                     
+                     let source_val = normalize_value(
+                        source_row.get(*source_idx).unwrap_or(""),
+                        case_sensitive,
+                        ignore_whitespace
+                     );
+                     let target_val = normalize_value(
+                        target_row.get(*target_idx).unwrap_or(""),
+                        case_sensitive,
+                        ignore_whitespace
+                     );
+                     
+                     if source_val == target_val {
+                         match_count += 1;
+                     }
+                 }
+                 
+                 let score = if total_compared > 0 {
+                     match_count as f64 / total_compared as f64
+                 } else {
+                     0.0
+                 };
+
+                 if score > best_real_score {
+                     best_real_score = score;
+                     best_match_idx = Some(cand_idx);
+                 }
             }
 
             if let Some(idx) = best_match_idx {
-                if final_score > 0.5 {
+                if best_real_score > 0.5 {
                     let target_row = &target_rows[idx];
                     let mut differences = Vec::new();
 
