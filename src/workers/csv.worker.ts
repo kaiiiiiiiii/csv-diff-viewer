@@ -1,5 +1,6 @@
 import init, {
   diff_csv,
+  diff_csv_chunked,
   diff_csv_primary_key,
   diff_csv_primary_key_chunked,
   parse_csv,
@@ -116,24 +117,39 @@ ctx.onmessage = async function (e) {
         throw new Error('Raw CSV data is required for comparison.')
       }
 
-      if (comparisonMode !== 'primary-key') {
-        throw new Error('Chunked processing is only supported for primary-key mode.')
-      }
-
       emitProgress(0, `Starting chunk ${chunkStart}...`)
-      const results = diff_csv_primary_key_chunked(
-        sourceRaw,
-        targetRaw,
-        keyColumns,
-        caseSensitive,
-        ignoreWhitespace,
-        ignoreEmptyVsNull,
-        excludedColumns,
-        hasHeaders !== false,
-        chunkStart,
-        chunkSize,
-        (percent: number, message: string) => emitProgress(percent, message),
-      )
+      let results
+      
+      if (comparisonMode === 'primary-key') {
+        results = diff_csv_primary_key_chunked(
+          sourceRaw,
+          targetRaw,
+          keyColumns,
+          caseSensitive,
+          ignoreWhitespace,
+          ignoreEmptyVsNull,
+          excludedColumns,
+          hasHeaders !== false,
+          chunkStart,
+          chunkSize,
+          (percent: number, message: string) => emitProgress(percent, message),
+        )
+      } else {
+        // Content match mode
+        results = diff_csv_chunked(
+          sourceRaw,
+          targetRaw,
+          caseSensitive,
+          ignoreWhitespace,
+          ignoreEmptyVsNull,
+          excludedColumns,
+          hasHeaders !== false,
+          chunkStart,
+          chunkSize,
+          (percent: number, message: string) => emitProgress(percent, message),
+        )
+      }
+      
       emitProgress(100, `Chunk ${chunkStart} complete`)
 
       ctx.postMessage({ requestId, type: 'chunk-complete', data: results })

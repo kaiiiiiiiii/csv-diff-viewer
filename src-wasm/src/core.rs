@@ -779,3 +779,335 @@ where
         mode: "primary-key".to_string(),
     })
 }
+
+/// Chunked version of diff_csv (content match) that processes source rows in chunks
+/// Returns results for a specific chunk range of source rows
+pub fn diff_csv_chunked<F>(
+    source_csv: &str,
+    target_csv: &str,
+    case_sensitive: bool,
+    ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
+    excluded_columns: Vec<String>,
+    has_headers: bool,
+    chunk_start: usize,
+    chunk_size: usize,
+    mut on_progress: F,
+) -> Result<DiffResult, Box<dyn std::error::Error>>
+where
+    F: FnMut(f64, &str),
+{
+    on_progress(0.0, "Parsing source CSV...");
+    let (source_headers, source_rows, source_header_map) = parse_csv_internal(source_csv, has_headers)?;
+
+    on_progress(10.0, "Parsing target CSV...");
+    let (target_headers_orig, target_rows_orig, target_header_map_orig) = parse_csv_internal(target_csv, has_headers)?;
+
+    let (target_headers, target_rows, target_header_map) = if source_headers != target_headers_orig && source_headers.len() == target_headers_orig.len() {
+        (source_headers.clone(), target_rows_orig, source_header_map.clone())
+    } else {
+        (target_headers_orig, target_rows_orig, target_header_map_orig)
+    };
+
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let mut modified = Vec::new();
+    let mut unchanged = Vec::new();
+
+    on_progress(20.0, "Building target index...");
+    
+    let mut unmatched_target_indices: AHashSet<usize> = (0..target_rows.len()).collect();
+    let mut target_fingerprint_lookup: AHashMap<String, Vec<usize>> = AHashMap::new();
+    let mut inverted_index: AHashMap<(usize, String), Vec<usize>> = AHashMap::new();
+
+    // Build full target index (needed for all chunks)
+    for (idx, row) in target_rows.iter().enumerate() {
+        let fp = get_row_fingerprint(
+            row, 
+            &source_headers, 
+            &target_header_map,
+            case_sensitive, 
+            ignore_whitespace,
+            ignore_empty_vs_null,
+            &excluded_columns
+        );
+        target_fingerprint_lookup.entry(fp).or_default().push(idx);
+
+        for (col_idx, header) in source_headers.iter().enumerate() {
+            if excluded_columns.contains(header) {
+                continue;
+            }
+            if let Some(&target_col_idx) = target_header_map.get(header) {
+                if let Some(val) = row.get(target_col_idx) {
+                    let norm_val = normalize_value(val, case_sensitive, ignore_whitespace);
+                    inverted_index.entry((col_idx, norm_val)).or_default().push(idx);
+                }
+            }
+        }
+    }
+
+    on_progress(40.0, "Processing source chunk...");
+    
+    // Process only the specified chunk of source rows
+    let chunk_end = (chunk_start + chunk_size).min(source_rows.len());
+    let mut row_counter = chunk_start + 1;
+    
+    let mut candidate_scores: AHashMap<usize, usize> = AHashMap::new();
+    let mut row_tokens: Vec<(usize, usize, String)> = Vec::new();
+
+    for (i, source_row) in source_rows.iter().enumerate().skip(chunk_start).take(chunk_end - chunk_start) {
+        if (i - chunk_start) % 50 == 0 {
+            let chunk_progress = (i - chunk_start) as f64 / (chunk_end - chunk_start) as f64;
+            let p = 40.0 + chunk_progress * 50.0;
+            on_progress(p, &format!("Processing row {} of chunk...", i - chunk_start));
+        }
+
+        let source_fingerprint = get_row_fingerprint(
+            source_row, 
+            &source_headers, 
+            &source_header_map,
+            case_sensitive, 
+            ignore_whitespace,
+            ignore_empty_vs_null,
+            &excluded_columns
+        );
+
+        let mut matched_exact = false;
+
+        if let Some(indices) = target_fingerprint_lookup.get_mut(&source_fingerprint) {
+            while let Some(target_idx) = indices.pop() {
+                if unmatched_target_indices.contains(&target_idx) {
+                    unchanged.push(UnchangedRow {
+                        key: format!("Row {}", row_counter),
+                        row: record_to_hashmap(source_row, &source_headers),
+                    });
+                    unmatched_target_indices.remove(&target_idx);
+                    matched_exact = true;
+                    break;
+                }
+            }
+        }
+
+        if !matched_exact {
+            candidate_scores.clear();
+            row_tokens.clear();
+            
+            for (col_idx, header) in source_headers.iter().enumerate() {
+                if excluded_columns.contains(header) {
+                    continue;
+                }
+                
+                if let Some(&source_col_idx) = source_header_map.get(header) {
+                    let source_val = normalize_value(
+                        source_row.get(source_col_idx).unwrap_or(""),
+                        case_sensitive,
+                        ignore_whitespace
+                    );
+
+                    if let Some(target_indices) = inverted_index.get(&(col_idx, source_val.clone())) {
+                        row_tokens.push((target_indices.len(), col_idx, source_val));
+                    }
+                }
+            }
+
+            row_tokens.sort_by(|a, b| a.0.cmp(&b.0));
+
+            let mut budget = 2000;
+            
+            for (count, col_idx, val) in &row_tokens {
+                if *count == 0 { continue; }
+                if budget == 0 { break; }
+                
+                if *count > budget && !candidate_scores.is_empty() {
+                    break;
+                }
+                
+                if *count > 10000 {
+                    break;
+                }
+
+                if let Some(target_indices) = inverted_index.get(&(*col_idx, val.clone())) {
+                    for &target_idx in target_indices {
+                        if unmatched_target_indices.contains(&target_idx) {
+                            *candidate_scores.entry(target_idx).or_default() += 1;
+                        }
+                    }
+                    budget = budget.saturating_sub(*count);
+                }
+            }
+
+            let mut top_candidates: Vec<(usize, usize)> = candidate_scores.iter().map(|(&k, &v)| (k, v)).collect();
+            top_candidates.sort_by(|a, b| b.1.cmp(&a.1));
+            if top_candidates.len() > 10 {
+                top_candidates.truncate(10);
+            }
+
+            let mut best_match_idx: Option<usize> = None;
+            let mut best_real_score = 0.0;
+
+            for (cand_idx, _) in top_candidates {
+                 let target_row = &target_rows[cand_idx];
+                 let mut match_count = 0;
+                 let mut total_compared = 0;
+                 
+                 for header in &source_headers {
+                     if excluded_columns.contains(header) { continue; }
+                     
+                     let source_idx = source_header_map.get(header).unwrap();
+                     let target_idx = match target_header_map.get(header) {
+                        Some(idx) => idx,
+                        None => continue,
+                     };
+                     
+                     total_compared += 1;
+                     
+                     let source_val = normalize_value(
+                        source_row.get(*source_idx).unwrap_or(""),
+                        case_sensitive,
+                        ignore_whitespace
+                     );
+                     let target_val = normalize_value(
+                        target_row.get(*target_idx).unwrap_or(""),
+                        case_sensitive,
+                        ignore_whitespace
+                     );
+                     
+                     if source_val == target_val {
+                         match_count += 1;
+                     }
+                 }
+                 
+                 let score = if total_compared > 0 {
+                     match_count as f64 / total_compared as f64
+                 } else {
+                     0.0
+                 };
+
+                 if score > best_real_score {
+                     best_real_score = score;
+                     best_match_idx = Some(cand_idx);
+                 }
+            }
+
+            if let Some(idx) = best_match_idx {
+                if best_real_score > 0.5 {
+                    let target_row = &target_rows[idx];
+                    let mut differences = Vec::new();
+
+                    for header in &source_headers {
+                        if excluded_columns.contains(header) {
+                            continue;
+                        }
+
+                        let source_idx = source_header_map.get(header).unwrap();
+                        let target_idx = match target_header_map.get(header) {
+                            Some(idx) => idx,
+                            None => continue,
+                        };
+
+                        let source_val_raw = source_row.get(*source_idx).unwrap_or("");
+                        let target_val_raw = target_row.get(*target_idx).unwrap_or("");
+
+                        let source_val = normalize_value_with_empty_vs_null(
+                            source_val_raw,
+                            case_sensitive,
+                            ignore_whitespace,
+                            ignore_empty_vs_null
+                        );
+                        let target_val = normalize_value_with_empty_vs_null(
+                            target_val_raw,
+                            case_sensitive,
+                            ignore_whitespace,
+                            ignore_empty_vs_null
+                        );
+
+                        if source_val != target_val {
+                            let diffs = diff_text_internal(source_val_raw, target_val_raw, case_sensitive);
+
+                            differences.push(Difference {
+                                column: header.clone(),
+                                old_value: source_val_raw.to_string(),
+                                new_value: target_val_raw.to_string(),
+                                diff: diffs,
+                            });
+                        }
+                    }
+
+                    modified.push(ModifiedRow {
+                        key: format!("Row {}", row_counter),
+                        source_row: record_to_hashmap(source_row, &source_headers),
+                        target_row: record_to_hashmap(target_row, &target_headers),
+                        differences,
+                    });
+                    unmatched_target_indices.remove(&idx);
+                } else {
+                    removed.push(RemovedRow {
+                        key: format!("Removed {}", removed.len() + 1),
+                        source_row: record_to_hashmap(source_row, &source_headers),
+                    });
+                }
+            } else {
+                 removed.push(RemovedRow {
+                    key: format!("Removed {}", removed.len() + 1),
+                    source_row: record_to_hashmap(source_row, &source_headers),
+                });
+            }
+        }
+        row_counter += 1;
+    }
+
+    // On the last chunk, add remaining unmatched target rows
+    if chunk_end >= source_rows.len() {
+        on_progress(95.0, "Finding added rows...");
+        let mut added_index = 1;
+        let mut remaining_indices: Vec<_> = unmatched_target_indices.into_iter().collect();
+        remaining_indices.sort();
+
+        for idx in remaining_indices {
+            let row = &target_rows[idx];
+            added.push(AddedRow {
+                key: format!("Added {}", added_index),
+                target_row: record_to_hashmap(row, &target_headers),
+            });
+            added_index += 1;
+        }
+    }
+
+    on_progress(100.0, "Chunk complete");
+
+    let (source_meta, target_meta) = if chunk_end >= source_rows.len() {
+        (
+            DatasetMetadata {
+                headers: source_headers.clone(),
+                rows: vec![],
+            },
+            DatasetMetadata {
+                headers: target_headers.clone(),
+                rows: vec![],
+            },
+        )
+    } else {
+        (
+            DatasetMetadata {
+                headers: source_headers.clone(),
+                rows: vec![],
+            },
+            DatasetMetadata {
+                headers: target_headers.clone(),
+                rows: vec![],
+            },
+        )
+    };
+
+    Ok(DiffResult {
+        added,
+        removed,
+        modified,
+        unchanged,
+        source: source_meta,
+        target: target_meta,
+        key_columns: vec![],
+        excluded_columns,
+        mode: "content-match".to_string(),
+    })
+}

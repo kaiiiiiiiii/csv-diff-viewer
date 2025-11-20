@@ -135,7 +135,7 @@ export function ConfigPanel({
           />
         </div>
 
-        {mode === 'primary-key' && setUseChunkedMode && (
+        {setUseChunkedMode && (
           <>
             <div className="flex items-center justify-between">
               <div className="space-y-1">

@@ -43,9 +43,12 @@ export function useChunkedDiff() {
 
       try {
         // Estimate total rows (rough estimate based on newlines)
-        const targetLines = targetRaw.split('\n').length - (options.hasHeaders ? 1 : 0)
+        // For primary-key mode, we chunk target rows; for content-match, we chunk source rows
+        const rowsToChunk = options.comparisonMode === 'primary-key'
+          ? targetRaw.split('\n').length - (options.hasHeaders ? 1 : 0)
+          : sourceRaw.split('\n').length - (options.hasHeaders ? 1 : 0)
         const chunkSize = options.chunkSize || 10000
-        const totalChunks = Math.ceil(targetLines / chunkSize)
+        const totalChunks = Math.ceil(rowsToChunk / chunkSize)
 
         // Save metadata
         const metadata: DiffMetadata = {
@@ -71,7 +74,7 @@ export function useChunkedDiff() {
             percent: (chunkIndex / totalChunks) * 100,
             message: `Processing chunk ${chunkIndex + 1} of ${totalChunks}...`,
             rowsProcessed: chunkStart,
-            totalRows: targetLines,
+            totalRows: rowsToChunk,
           }
           onProgress?.(chunkProgress)
 
@@ -127,8 +130,8 @@ export function useChunkedDiff() {
           totalChunks,
           percent: 100,
           message: 'Diff complete!',
-          rowsProcessed: targetLines,
-          totalRows: targetLines,
+          rowsProcessed: rowsToChunk,
+          totalRows: rowsToChunk,
         })
 
         setIsProcessing(false)

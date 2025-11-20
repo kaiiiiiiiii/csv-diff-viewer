@@ -128,8 +128,8 @@ function Index() {
         hasHeaders,
       )
 
-      // Use chunked mode for large datasets with primary-key mode
-      if (useChunkedMode && mode === 'primary-key') {
+      // Use chunked mode for large datasets
+      if (useChunkedMode) {
         const diffId = await startChunkedDiff(
           sourceData.text,
           targetData.text,

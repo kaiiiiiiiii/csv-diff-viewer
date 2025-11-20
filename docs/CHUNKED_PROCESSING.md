@@ -20,11 +20,11 @@ Use chunked processing when:
 - You experience crashes or slow performance with standard mode
 - You want to preserve results for later viewing
 
-**Note**: Chunked processing is currently only available for **Primary Key** comparison mode.
+**Note**: Chunked processing is available for both **Primary Key** and **Content Match** comparison modes.
 
 ## How to Enable
 
-1. Select **Primary Key** as the comparison mode
+1. Select your comparison mode (**Primary Key** or **Content Match**)
 2. Toggle **Chunked Processing** switch in the configuration panel
 3. (Optional) Adjust chunk size:
    - Lower values (e.g., 5,000): Less memory usage, slower processing
@@ -35,9 +35,10 @@ Use chunked processing when:
 
 ### Rust WASM Module
 
-New function `diff_csv_primary_key_chunked` in `src-wasm/src/core.rs`:
-- Processes a specific range of rows
-- Returns partial results for the chunk
+New functions in `src-wasm/src/core.rs`:
+- `diff_csv_primary_key_chunked`: Processes target rows in chunks for primary-key mode
+- `diff_csv_chunked`: Processes source rows in chunks for content-match mode
+- Both return partial results per chunk
 - Emits progress updates
 
 ### Web Worker
@@ -147,10 +148,10 @@ Display results
 
 ## Limitations
 
-- **Primary Key Mode Only**: Chunked processing requires primary keys for efficient row matching
 - **Browser Storage Limits**: IndexedDB storage limits vary by browser (typically 50% of disk space)
 - **No Concurrent Diffs**: Only one chunked diff can run at a time
 - **Session Persistence**: Stored diffs persist across browser sessions until manually cleared
+- **Content Match Performance**: Building the full target index requires all target rows in memory initially, but source rows are processed in chunks
 
 ## Troubleshooting
 
@@ -178,7 +179,7 @@ If browser still crashes:
 
 ```typescript
 interface ChunkedDiffOptions {
-  comparisonMode: 'primary-key'
+  comparisonMode: 'primary-key' | 'content-match'
   keyColumns: string[]
   caseSensitive: boolean
   ignoreWhitespace: boolean
@@ -230,9 +231,9 @@ const available = await indexedDBManager.getAvailableStorage()
 ## Future Enhancements
 
 Potential improvements:
-- Support for Content Match mode chunking
 - Streaming results display (show chunks as they complete)
 - Diff result caching across sessions
 - Export chunks to files for external processing
 - Parallel chunk processing (Web Workers pool)
 - Compression of stored chunks
+- Optimize content match mode to avoid loading full target index into memory
