@@ -3,7 +3,20 @@
 /// This module provides zero-copy binary encoding for diff results,
 /// eliminating the need for serde-wasm-bindgen JSON serialization.
 /// 
-/// Performance: ~50x faster than JSON serialization for large datasets.
+/// Performance: ~2x faster than JSON serialization for large datasets.
+/// 
+/// ## Important Limitation
+/// 
+/// Character-level diffs are NOT included in binary encoding for performance
+/// and size optimization. This means the `diff` field in `Difference` structs
+/// will be empty when using binary encoding.
+/// 
+/// To get character-level diffs:
+/// - Use JSON encoding mode (set `USE_BINARY_ENCODING = false` in worker)
+/// - Recompute diffs on the JavaScript side using a diff library
+/// 
+/// This trade-off provides 2x faster serialization at the cost of losing
+/// fine-grained diff information in the binary format.
 
 use crate::types::*;
 use std::collections::HashMap;

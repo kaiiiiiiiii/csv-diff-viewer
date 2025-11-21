@@ -153,6 +153,9 @@ export class BinaryDecoder {
    * Read a single byte (u8).
    */
   private readU8(): number {
+    if (this.position >= this.buffer.length) {
+      throw new Error(`Buffer overflow: attempted to read at position ${this.position}, buffer length ${this.buffer.length}`);
+    }
     const value = this.buffer[this.position];
     this.position += 1;
     return value;
@@ -162,6 +165,9 @@ export class BinaryDecoder {
    * Read a 32-bit unsigned integer (u32) in little-endian format.
    */
   private readU32(): number {
+    if (this.position + 4 > this.buffer.length) {
+      throw new Error(`Buffer overflow: attempted to read u32 at position ${this.position}, buffer length ${this.buffer.length}`);
+    }
     const value = this.view.getUint32(this.position, true); // true = little-endian
     this.position += 4;
     return value;
@@ -172,6 +178,9 @@ export class BinaryDecoder {
    */
   private readString(): string {
     const length = this.readU32();
+    if (this.position + length > this.buffer.length) {
+      throw new Error(`Buffer overflow: attempted to read ${length} bytes at position ${this.position}, buffer length ${this.buffer.length}`);
+    }
     const bytes = this.buffer.subarray(this.position, this.position + length);
     this.position += length;
     return this.textDecoder.decode(bytes);

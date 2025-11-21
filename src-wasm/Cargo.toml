@@ -29,5 +29,10 @@ codegen-units = 1   # Better optimization (single codegen unit)
 panic = 'abort'     # Smaller binary
 strip = true        # Strip symbols
 
+# Browser compatibility: SIMD and bulk memory require:
+# - Chrome/Edge 91+ (June 2021)
+# - Firefox 89+ (June 2021)
+# - Safari 16.4+ (March 2023)
+# For older browser support, remove --enable-simd flag
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O4", "--enable-simd", "--enable-bulk-memory"]  # Maximum optimization + SIMD + bulk memory
