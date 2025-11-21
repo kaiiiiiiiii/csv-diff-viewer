@@ -641,4 +641,220 @@ mod tests {
         println!("\nTest Results: {} passed, {} failed", passed, failed);
         assert_eq!(failed, 0, "Some tests failed. See output above.");
     }
+
+    // ===== PERFORMANCE BENCHMARKS =====
+
+    /// Generate a large CSV for performance testing
+    fn generate_large_csv_for_benchmark(rows: usize, cols: usize) -> String {
+        let mut lines = vec![];
+        
+        // Header
+        let header: Vec<String> = (0..cols).map(|i| format!("Column{}", i + 1)).collect();
+        lines.push(header.join(","));
+        
+        // Data rows
+        for row in 0..rows {
+            let row_data: Vec<String> = (0..cols).map(|col| {
+                if col == 0 {
+                    format!("ID{}", row)
+                } else {
+                    format!("Value{}_{}", row, col)
+                }
+            }).collect();
+            lines.push(row_data.join(","));
+        }
+        
+        lines.join("\n")
+    }
+
+    /// Benchmark: 10k rows with primary key mode
+    #[test]
+    #[ignore] // Run with: cargo test --release -- --ignored --nocapture
+    fn benchmark_10k_rows_primary_key() {
+        let csv = generate_large_csv_for_benchmark(10_000, 5);
+        let csv_modified = csv.replace("Value5000_2", "MODIFIED");
+        
+        let start = std::time::Instant::now();
+        let result = core::diff_csv_primary_key_internal(
+            &csv,
+            &csv_modified,
+            vec!["Column1".to_string()],
+            true,
+            false,
+            false,
+            vec![],
+            true,
+            |_p, _m| {},
+        );
+        let duration = start.elapsed();
+        
+        assert!(result.is_ok());
+        println!("✓ 10k rows (primary key): {:?}", duration);
+        println!("  Memory estimate: ~{:.2} MB", csv.len() as f64 / 1_048_576.0);
+    }
+
+    /// Benchmark: 10k rows with content match mode
+    #[test]
+    #[ignore]
+    fn benchmark_10k_rows_content_match() {
+        let csv = generate_large_csv_for_benchmark(10_000, 5);
+        let csv_modified = csv.replace("Value5000_2", "MODIFIED");
+        
+        let start = std::time::Instant::now();
+        let result = core::diff_csv_internal(
+            &csv,
+            &csv_modified,
+            true,
+            false,
+            false,
+            vec![],
+            true,
+            |_p, _m| {},
+        );
+        let duration = start.elapsed();
+        
+        assert!(result.is_ok());
+        println!("✓ 10k rows (content match): {:?}", duration);
+    }
+
+    /// Benchmark: 100k rows with primary key mode
+    #[test]
+    #[ignore]
+    fn benchmark_100k_rows_primary_key() {
+        let csv = generate_large_csv_for_benchmark(100_000, 5);
+        let csv_modified = csv.replace("Value50000_2", "MODIFIED");
+        
+        let start = std::time::Instant::now();
+        let result = core::diff_csv_primary_key_internal(
+            &csv,
+            &csv_modified,
+            vec!["Column1".to_string()],
+            true,
+            false,
+            false,
+            vec![],
+            true,
+            |_p, _m| {},
+        );
+        let duration = start.elapsed();
+        
+        assert!(result.is_ok());
+        println!("✓ 100k rows (primary key): {:?}", duration);
+        println!("  Memory estimate: ~{:.2} MB", csv.len() as f64 / 1_048_576.0);
+    }
+
+    /// Benchmark: 1M rows with primary key mode
+    #[test]
+    #[ignore]
+    fn benchmark_1m_rows_primary_key() {
+        let csv = generate_large_csv_for_benchmark(1_000_000, 5);
+        let csv_modified = csv.replace("Value500000_2", "MODIFIED");
+        
+        let start = std::time::Instant::now();
+        let result = core::diff_csv_primary_key_internal(
+            &csv,
+            &csv_modified,
+            vec!["Column1".to_string()],
+            true,
+            false,
+            false,
+            vec![],
+            true,
+            |percent, msg| {
+                if percent as u32 % 10 == 0 {
+                    println!("  Progress: {}% - {}", percent, msg);
+                }
+            },
+        );
+        let duration = start.elapsed();
+        
+        assert!(result.is_ok());
+        println!("✓ 1M rows (primary key): {:?}", duration);
+        println!("  Memory estimate: ~{:.2} MB", csv.len() as f64 / 1_048_576.0);
+    }
+
+    /// Benchmark: Unicode handling with 10k rows
+    #[test]
+    #[ignore]
+    fn benchmark_unicode_handling() {
+        let mut lines = vec!["ID,Name,Description".to_string()];
+        for i in 0..10_000 {
+            lines.push(format!("{},用户{},测试数据{}世界", i, i, i));
+        }
+        let csv = lines.join("\n");
+        let csv_modified = csv.replace("用户5000", "修改后的用户5000");
+        
+        let start = std::time::Instant::now();
+        let result = core::diff_csv_primary_key_internal(
+            &csv,
+            &csv_modified,
+            vec!["ID".to_string()],
+            true,
+            false,
+            false,
+            vec![],
+            true,
+            |_p, _m| {},
+        );
+        let duration = start.elapsed();
+        
+        assert!(result.is_ok());
+        println!("✓ 10k rows (unicode): {:?}", duration);
+        println!("  Memory estimate: ~{:.2} MB", csv.len() as f64 / 1_048_576.0);
+    }
+
+    /// Run all benchmarks and report summary
+    #[test]
+    #[ignore]
+    fn benchmark_summary() {
+        println!("\n=== Performance Benchmark Summary ===\n");
+        
+        let benchmarks = vec![
+            (10_000, "10k"),
+            (50_000, "50k"),
+            (100_000, "100k"),
+        ];
+        
+        for (rows, label) in benchmarks {
+            let csv = generate_large_csv_for_benchmark(rows, 5);
+            let csv_modified = csv.replace(&format!("Value{}_2", rows / 2), "MODIFIED");
+            
+            // Primary key benchmark
+            let start = std::time::Instant::now();
+            let _ = core::diff_csv_primary_key_internal(
+                &csv,
+                &csv_modified,
+                vec!["Column1".to_string()],
+                true,
+                false,
+                false,
+                vec![],
+                true,
+                |_p, _m| {},
+            );
+            let pk_duration = start.elapsed();
+            
+            // Content match benchmark
+            let start = std::time::Instant::now();
+            let _ = core::diff_csv_internal(
+                &csv,
+                &csv_modified,
+                true,
+                false,
+                false,
+                vec![],
+                true,
+                |_p, _m| {},
+            );
+            let cm_duration = start.elapsed();
+            
+            let memory_mb = csv.len() as f64 / 1_048_576.0;
+            
+            println!("{} rows:", label);
+            println!("  Primary Key: {:?}", pk_duration);
+            println!("  Content Match: {:?}", cm_duration);
+            println!("  Memory: {:.2} MB", memory_mb);
+            println!();
+        }
+    }
 }

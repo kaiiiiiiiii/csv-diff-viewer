@@ -1,0 +1,187 @@
+name: Tests and Coverage
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  typescript-tests:
+    name: TypeScript/JavaScript Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run tests
+        run: npm test
+      
+      - name: Run tests with coverage
+        run: npm test -- --coverage
+      
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: ./coverage/coverage-final.json
+          flags: typescript
+          name: typescript-coverage
+
+  rust-tests:
+    name: Rust/WASM Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-wasm/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run Rust tests
+        working-directory: src-wasm
+        run: cargo test --verbose
+      
+      - name: Run benchmark tests
+        working-directory: src-wasm
+        run: cargo test --release -- --ignored --nocapture | tee benchmark-results.txt
+      
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-benchmarks
+          path: src-wasm/benchmark-results.txt
+
+  wasm-build-size:
+    name: WASM Binary Size Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for comparison
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      
+      - name: Build WASM
+        working-directory: src-wasm
+        run: wasm-pack build --target web --release
+      
+      - name: Check WASM size
+        id: wasm-size
+        run: |
+          SIZE=$(stat -c%s src-wasm/pkg/csv_diff_wasm_bg.wasm)
+          # Use awk for portable arithmetic (no bc dependency)
+          SIZE_KB=$(awk "BEGIN {printf \"%.2f\", $SIZE / 1024}")
+          SIZE_MB=$(awk "BEGIN {printf \"%.3f\", $SIZE / 1048576}")
+          echo "size_bytes=$SIZE" >> $GITHUB_OUTPUT
+          echo "size_kb=$SIZE_KB" >> $GITHUB_OUTPUT
+          echo "size_mb=$SIZE_MB" >> $GITHUB_OUTPUT
+          echo "WASM binary size: $SIZE_KB KB ($SIZE_MB MB)"
+      
+      - name: Comment PR with size
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const size_kb = '${{ steps.wasm-size.outputs.size_kb }}';
+            const size_mb = '${{ steps.wasm-size.outputs.size_mb }}';
+            const body = `## WASM Binary Size\n\n📦 Size: **${size_kb} KB** (${size_mb} MB)\n\n` +
+                        `This is the optimized release build size.\n\n` +
+                        `⚠️ If this is significantly larger than expected, consider:\n` +
+                        `- Removing unused dependencies\n` +
+                        `- Enabling LTO and other optimizations\n` +
+                        `- Using wasm-opt for further size reduction`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+      
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-binary
+          path: src-wasm/pkg/csv_diff_wasm_bg.wasm
+
+  performance-regression:
+    name: Performance Regression Check
+    runs-on: ubuntu-latest
+    needs: [typescript-tests, rust-tests]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Run performance benchmarks
+        working-directory: src-wasm
+        run: |
+          echo "=== Performance Benchmarks ===" > perf-results.txt
+          cargo test --release benchmark_summary -- --ignored --nocapture | tee -a perf-results.txt
+      
+      - name: Upload performance results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results
+          path: src-wasm/perf-results.txt
+      
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const perfResults = fs.readFileSync('src-wasm/perf-results.txt', 'utf8');
+            const body = `## Performance Benchmark Results\n\n\`\`\`\n${perfResults}\n\`\`\``;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [typescript-tests, rust-tests, wasm-build-size]
+    if: always()
+    
+    steps:
+      - name: Summary
+        run: |
+          echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ All test jobs completed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See individual job results above for details." >> $GITHUB_STEP_SUMMARY
