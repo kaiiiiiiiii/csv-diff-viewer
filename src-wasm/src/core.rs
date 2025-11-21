@@ -466,7 +466,7 @@ where
             rows: target_rows.iter().map(|r| record_to_hashmap(r, &target_headers)).collect(),
         },
         key_columns: vec![],
-        excluded_columns,
+        excluded_columns: excluded_columns,
         mode: "content-match".to_string(),
     })
 }

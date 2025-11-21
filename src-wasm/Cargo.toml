@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
+# cdylib: WASM binary for browser/Node.js
+# rlib: Rust library for testing and integration
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
