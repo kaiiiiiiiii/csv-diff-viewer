@@ -19,12 +19,15 @@ ahash = "0.8"            # Fast hashing for HashMaps
 getrandom = { version = "0.3", features = ["wasm_js"] }
 strsim = "0.11"          # String similarity algorithms (Jaro-Winkler, Levenshtein)
 
+[dev-dependencies]
+serde_json = "1.0"   # For testing binary encoding vs JSON
+
 [profile.release]
-opt-level = 'z'     # Optimize for size
-lto = true          # Link-time optimization
-codegen-units = 1   # Better optimization
+opt-level = 3       # Optimize for speed (changed from 'z' for size to '3' for speed)
+lto = "fat"         # Fat link-time optimization for maximum performance
+codegen-units = 1   # Better optimization (single codegen unit)
 panic = 'abort'     # Smaller binary
 strip = true        # Strip symbols
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = false
+wasm-opt = ["-O4", "--enable-simd", "--enable-bulk-memory"]  # Maximum optimization + SIMD + bulk memory
