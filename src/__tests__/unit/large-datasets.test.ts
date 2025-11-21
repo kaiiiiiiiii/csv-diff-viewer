@@ -48,14 +48,15 @@ describe('Large Dataset Tests', () => {
 
   describe('Unicode and special character handling', () => {
     it('should handle Unicode characters in CSV', () => {
+      // Use more columns to ensure unicode is included (col % 5 === 0, so we need at least col 5)
       const csv = generateLargeCsv({ 
         rows: 1000, 
-        columns: 5, 
+        columns: 10, 
         includeUnicode: true,
         seed: 12345 
       })
       
-      // Check for unicode presence
+      // Check for unicode presence - unicode is added at column indexes 5, 10, etc (col % 5 === 0, col > 0)
       expect(csv).toMatch(/世界|你好|Привет|🎉/)
       
       const lines = csv.split('\n')

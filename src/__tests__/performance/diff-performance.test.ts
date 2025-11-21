@@ -65,7 +65,9 @@ describe('CSV Diff Performance Tests', () => {
       const targetLines = target.split('\n').length
 
       expect(sourceLines).toBe(10001) // header + 10000 rows
-      expect(targetLines).toBe(9801) // header + (10000 - 100 removed - 200 modified + 100 added + 200 modified)
+      // Target: header + (baseRows - removedRows - modifiedRows) + modifiedRows + addedRows
+      // = 1 + (10000 - 100 - 200) + 200 + 100 = 1 + 9700 + 200 + 100 = 10001
+      expect(targetLines).toBe(10001)
 
       console.log(`Diff pair generation (10k rows): ${duration.toFixed(2)}ms`)
     })
