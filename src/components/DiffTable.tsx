@@ -36,6 +36,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  AdvancedSearchInput,
+  createAdvancedFilterFn,
+  parseSearchQuery,
+} from '@/components/AdvancedSearchInput'
 
 interface DiffResult {
   added: Array<any>
@@ -109,23 +114,25 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
   }, [results, showOnlyDiffs])
 
   // 2. Define Columns
+  const availableColumns = useMemo(() => {
+    const sourceHeaders = results.source.headers
+    const targetHeaders = results.target.headers
+
+    // Create a union of headers while preserving order as much as possible
+    const headerSet = new Set(targetHeaders)
+    const combinedHeaders = [...targetHeaders]
+
+    sourceHeaders.forEach((h) => {
+      if (!headerSet.has(h)) {
+        combinedHeaders.push(h)
+      }
+    })
+
+    return combinedHeaders.length > 0 ? combinedHeaders : sourceHeaders
+  }, [results])
+
   const columns = useMemo<Array<ColumnDef<DiffRow>>>(() => {
-    const headers = (() => {
-      const sourceHeaders = results.source.headers
-      const targetHeaders = results.target.headers
-
-      // Create a union of headers while preserving order as much as possible
-      const headerSet = new Set(targetHeaders)
-      const combinedHeaders = [...targetHeaders]
-
-      sourceHeaders.forEach((h) => {
-        if (!headerSet.has(h)) {
-          combinedHeaders.push(h)
-        }
-      })
-
-      return combinedHeaders.length > 0 ? combinedHeaders : sourceHeaders
-    })()
+    const headers = availableColumns
 
     const dynamicCols: Array<ColumnDef<DiffRow>> = headers.map(
       (header, index) => ({
@@ -252,9 +259,14 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
       },
       ...dynamicCols,
     ]
-  }, [results])
+  }, [results, availableColumns])
 
   // 3. Initialize Table
+  const globalFilterFn = useMemo(() => {
+    const tokens = parseSearchQuery(globalFilter)
+    return createAdvancedFilterFn(tokens)
+  }, [globalFilter])
+
   const table = useReactTable({
     data,
     columns,
@@ -269,6 +281,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
     onGlobalFilterChange: setGlobalFilter,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
+    globalFilterFn,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -319,11 +332,12 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
         )}
       >
         <div className="flex items-center py-2 gap-2">
-          <Input
-            placeholder="Filter all columns..."
+          <AdvancedSearchInput
+            placeholder='Advanced search (try: term1 OR term2, -exclude, "exact phrase", column:value)...'
             value={globalFilter}
-            onChange={(event) => setGlobalFilter(event.target.value)}
-            className="max-w-sm"
+            onChange={setGlobalFilter}
+            availableColumns={availableColumns}
+            className="flex-1 max-w-2xl"
           />
 
           <div className="flex items-center gap-2 ml-2">
