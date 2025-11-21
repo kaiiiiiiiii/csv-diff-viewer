@@ -743,6 +743,36 @@ mod tests {
         println!("  Memory estimate: ~{:.2} MB", csv.len() as f64 / 1_048_576.0);
     }
 
+    /// Benchmark: 500k rows with primary key mode
+    #[test]
+    #[ignore]
+    fn benchmark_500k_rows_primary_key() {
+        let csv = generate_large_csv_for_benchmark(500_000, 5);
+        let csv_modified = csv.replace("Value250000_2", "MODIFIED");
+        
+        let start = std::time::Instant::now();
+        let result = core::diff_csv_primary_key_internal(
+            &csv,
+            &csv_modified,
+            vec!["Column1".to_string()],
+            true,
+            false,
+            false,
+            vec![],
+            true,
+            |percent, msg| {
+                if percent as u32 % 10 == 0 {
+                    println!("  Progress: {}% - {}", percent, msg);
+                }
+            },
+        );
+        let duration = start.elapsed();
+        
+        assert!(result.is_ok());
+        println!("✓ 500k rows (primary key): {:?}", duration);
+        println!("  Memory estimate: ~{:.2} MB", csv.len() as f64 / 1_048_576.0);
+    }
+
     /// Benchmark: 1M rows with primary key mode
     #[test]
     #[ignore]
@@ -813,6 +843,7 @@ mod tests {
             (10_000, "10k"),
             (50_000, "50k"),
             (100_000, "100k"),
+            (500_000, "500k"),
         ];
         
         for (rows, label) in benchmarks {
