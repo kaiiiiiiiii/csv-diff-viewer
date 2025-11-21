@@ -173,8 +173,17 @@ impl CsvDiffer {
 /// Returns a pointer to the allocated memory.
 /// 
 /// # Safety
-/// The caller must ensure that the returned pointer is properly deallocated
-/// using `dealloc` when no longer needed.
+/// The caller MUST call `dealloc` with the same pointer and size when done,
+/// otherwise memory will leak. This function uses `std::mem::forget` to prevent
+/// Rust from dropping the allocation, transferring ownership to the caller.
+/// 
+/// # Example
+/// ```javascript
+/// const size = 1024;
+/// const ptr = wasm.alloc(size);
+/// // ... use the memory ...
+/// wasm.dealloc(ptr, size); // REQUIRED to prevent memory leak
+/// ```
 #[wasm_bindgen]
 pub fn alloc(size: usize) -> *mut u8 {
     let mut buf = Vec::with_capacity(size);
@@ -191,8 +200,17 @@ pub fn alloc(size: usize) -> *mut u8 {
 /// - The pointer was allocated by `alloc`
 /// - The size matches the original allocation
 /// - The pointer hasn't been deallocated already
+/// 
+/// Double-free or invalid pointer/size will cause undefined behavior.
+/// Always pair each `alloc` call with exactly one `dealloc` call.
 #[wasm_bindgen]
 pub fn dealloc(ptr: *mut u8, size: usize) {
+    // Basic sanity check - null pointer check
+    if ptr.is_null() {
+        // Early return on null pointer to prevent UB
+        return;
+    }
+    
     unsafe {
         let _ = Vec::from_raw_parts(ptr, 0, size);
         // Vec will be dropped here, freeing the memory
@@ -207,6 +225,17 @@ pub fn dealloc(ptr: *mut u8, size: usize) {
 /// 
 /// Returns a pointer to binary-encoded results. Use `get_binary_result_length`
 /// to get the length, then read the data from WASM memory.
+/// 
+/// # Memory Management
+/// The returned pointer MUST be deallocated using `dealloc` after reading
+/// the data to prevent memory leaks. Example usage:
+/// ```javascript
+/// const ptr = wasm.diff_csv_primary_key_binary(...);
+/// const len = wasm.get_binary_result_length();
+/// const data = new Uint8Array(wasm.memory.buffer, ptr, len);
+/// // ... process data ...
+/// wasm.dealloc(ptr, len); // REQUIRED
+/// ```
 #[wasm_bindgen]
 pub fn diff_csv_primary_key_binary(
     source_csv: &str,
@@ -266,7 +295,12 @@ pub fn get_binary_result_length() -> usize {
     unsafe { LAST_BINARY_RESULT_LENGTH }
 }
 
-/// Storage for the last binary result length
+/// Storage for the last binary result length.
+/// 
+/// # Safety Note
+/// This is safe in WASM's single-threaded environment, but would need
+/// synchronization in a multi-threaded context. WASM in browsers runs
+/// on a single thread, making this pattern safe.
 static mut LAST_BINARY_RESULT_LENGTH: usize = 0;
 
 /// High-performance CSV diff (content match mode) using binary encoding.

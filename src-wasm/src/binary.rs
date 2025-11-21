@@ -78,8 +78,13 @@ impl BinaryEncoder {
                 self.write_string(&diff.column);
                 self.write_string(&diff.old_value);
                 self.write_string(&diff.new_value);
-                // Note: We skip diff changes for binary encoding to keep it compact
-                // The JS side can recompute character-level diffs if needed
+                // IMPORTANT: Character-level diffs are NOT included in binary encoding
+                // for performance and size optimization. Binary encoding is primarily
+                // for bulk data transfer. If character-level diffs are needed, either:
+                // 1. Use JSON encoding mode (set USE_BINARY_ENCODING = false)
+                // 2. Recompute diffs on the JS side using a diff library
+                // This trade-off provides 2x faster serialization at the cost of
+                // losing fine-grained diff information in the binary format.
             }
         }
 
