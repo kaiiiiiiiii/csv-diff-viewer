@@ -120,35 +120,27 @@ export function parseSearchQuery(query: string): Array<SearchToken> {
  * Create a custom filter function that handles advanced search tokens
  */
 export function createAdvancedFilterFn(tokens: Array<SearchToken>) {
-  return (row: any, columnId: string, filterValue: any): boolean => {
+  // columnId and filterValue are required by TanStack Table's FilterFn interface but not used
+  // since we search across all columns based on the parsed tokens
+  return (row: any, _columnId: string, _filterValue: any): boolean => {
     if (tokens.length === 0) return true
 
-    // Get all cell values from the row
-    const rowValues: Record<string, string> = {}
-    Object.keys(row.original).forEach((key) => {
-      const val = row.original[key]
-      rowValues[key] = String(val ?? '').toLowerCase()
-    })
+    // Helper to extract and normalize values from an object
+    const extractValues = (obj: any) => {
+      Object.keys(obj).forEach((key) => {
+        const val = obj[key]
+        rowValues[key] = String(val ?? '').toLowerCase()
+      })
+    }
 
-    // Also check nested values for diff rows
-    if (row.original.sourceRow) {
-      Object.keys(row.original.sourceRow).forEach((key) => {
-        const val = row.original.sourceRow[key]
-        rowValues[key] = String(val ?? '').toLowerCase()
-      })
-    }
-    if (row.original.targetRow) {
-      Object.keys(row.original.targetRow).forEach((key) => {
-        const val = row.original.targetRow[key]
-        rowValues[key] = String(val ?? '').toLowerCase()
-      })
-    }
-    if (row.original.row) {
-      Object.keys(row.original.row).forEach((key) => {
-        const val = row.original.row[key]
-        rowValues[key] = String(val ?? '').toLowerCase()
-      })
-    }
+    // Get all cell values from the row (including nested values for diff rows)
+    const rowValues: Record<string, string> = {}
+    extractValues(row.original)
+
+    // Also check nested values for diff rows (sourceRow, targetRow, row)
+    if (row.original.sourceRow) extractValues(row.original.sourceRow)
+    if (row.original.targetRow) extractValues(row.original.targetRow)
+    if (row.original.row) extractValues(row.original.row)
 
     const allText = Object.values(rowValues).join(' ')
 
@@ -175,19 +167,22 @@ export function createAdvancedFilterFn(tokens: Array<SearchToken>) {
         matches = allText.includes(searchValue)
       }
 
-      // Handle operators
+      // Handle operators with left-to-right evaluation
+      // Groups consecutive terms with same operator, then combines groups
+      // Example: "a b OR c d" evaluates as "(a AND b) OR (c AND d)"
+      // Example: "a OR b c" evaluates as "(a) OR (b AND c)"
       if (token.operator === 'OR') {
         if (groupOperator === 'AND' && currentGroup.length > 0) {
-          // Finish the AND group
+          // Finish the AND group before starting OR group
           lastResult = currentGroup.every((r) => r)
           currentGroup = []
         }
         groupOperator = 'OR'
         currentGroup.push(matches)
       } else {
-        // AND operator
+        // AND operator (default)
         if (groupOperator === 'OR' && currentGroup.length > 0) {
-          // Finish the OR group
+          // Finish the OR group before starting AND group
           lastResult = lastResult && currentGroup.some((r) => r)
           currentGroup = []
         }
@@ -231,14 +226,21 @@ export function AdvancedSearchInput({
   const removeToken = useCallback(
     (index: number) => {
       const newTokens = tokens.filter((_, i) => i !== index)
-      // Reconstruct query from remaining tokens
+      // Reconstruct query from remaining tokens, preserving OR operators
       const newQuery = newTokens
-        .map((token) => {
-          if (token.type === 'exclude') return `-${token.value}`
-          if (token.type === 'phrase') return `"${token.value}"`
-          if (token.type === 'column' && token.column)
-            return `${token.column}:${token.value}`
-          return token.value
+        .map((token, idx) => {
+          let term = ''
+          if (token.type === 'exclude') term = `-${token.value}`
+          else if (token.type === 'phrase') term = `"${token.value}"`
+          else if (token.type === 'column' && token.column)
+            term = `${token.column}:${token.value}`
+          else term = token.value
+
+          // Add OR operator if this token has OR operator and it's not the first token
+          if (token.operator === 'OR' && idx > 0) {
+            return `OR ${term}`
+          }
+          return term
         })
         .join(' ')
       onChange(newQuery)
@@ -337,6 +339,8 @@ export function AdvancedSearchInput({
             <Badge
               key={index}
               variant="secondary"
+              role="button"
+              tabIndex={0}
               className={cn(
                 'text-xs cursor-pointer hover:bg-secondary/80',
                 token.type === 'exclude' && 'bg-red-100 text-red-800',
@@ -344,6 +348,12 @@ export function AdvancedSearchInput({
                 token.type === 'column' && 'bg-purple-100 text-purple-800',
               )}
               onClick={() => removeToken(index)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  removeToken(index)
+                }
+              }}
             >
               {token.operator === 'OR' && index > 0 && (
                 <span className="mr-1 opacity-50">OR</span>
