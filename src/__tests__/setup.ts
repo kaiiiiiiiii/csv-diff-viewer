@@ -24,5 +24,11 @@ class MockWorker {
   }
 }
 
-// @ts-ignore
-global.Worker = MockWorker
+// Set up global Worker mock for JSDOM environment
+// JSDOM doesn't provide Worker by default
+declare global {
+  // eslint-disable-next-line no-var
+  var Worker: typeof MockWorker
+}
+
+global.Worker = MockWorker as any

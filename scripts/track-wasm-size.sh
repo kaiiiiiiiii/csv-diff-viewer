@@ -24,10 +24,12 @@ if [ ! -f "$WASM_DIR/$WASM_FILE" ]; then
     exit 1
 fi
 
-# Get file size
+# Get file size - portable across macOS and Linux
 SIZE_BYTES=$(stat -f%z "$WASM_DIR/$WASM_FILE" 2>/dev/null || stat -c%s "$WASM_DIR/$WASM_FILE")
-SIZE_KB=$(echo "scale=2; $SIZE_BYTES / 1024" | bc)
-SIZE_MB=$(echo "scale=3; $SIZE_BYTES / 1048576" | bc)
+
+# Use awk for portable arithmetic (no bc dependency)
+SIZE_KB=$(awk "BEGIN {printf \"%.2f\", $SIZE_BYTES / 1024}")
+SIZE_MB=$(awk "BEGIN {printf \"%.3f\", $SIZE_BYTES / 1048576}")
 
 # Get timestamp
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
@@ -52,3 +54,34 @@ fi
 echo "| $TIMESTAMP | $COMMIT | $SIZE_KB | $SIZE_MB | Manual build |" >> "$OUTPUT_FILE"
 
 echo "Size recorded in $OUTPUT_FILE"
+echo ""
+
+# Show recent history
+echo "Recent size history:"
+tail -n 5 "$OUTPUT_FILE"
+echo ""
+
+# Check for size regression (more than 10% increase)
+if [ -f "$OUTPUT_FILE" ]; then
+    PREV_SIZE=$(tail -n 2 "$OUTPUT_FILE" | head -n 1 | awk -F'|' '{print $4}' | tr -d ' ')
+    if [ ! -z "$PREV_SIZE" ] && [ "$PREV_SIZE" != "Size (KB)" ]; then
+        INCREASE=$(awk "BEGIN {printf \"%.2f\", ($SIZE_KB - $PREV_SIZE) / $PREV_SIZE * 100}")
+        INCREASE_ABS=$(awk "BEGIN {printf \"%.2f\", ($INCREASE < 0 ? -$INCREASE : $INCREASE)}")
+        
+        if awk "BEGIN {exit !($INCREASE > 10)}"; then
+            echo -e "${YELLOW}⚠ Warning: WASM size increased by ${INCREASE}%${NC}"
+        elif awk "BEGIN {exit !($INCREASE < -10)}"; then
+            echo -e "${GREEN}✓ Great! WASM size decreased by ${INCREASE_ABS}%${NC}"
+        fi
+    fi
+fi
+
+# Show detailed analysis
+echo "Detailed WASM module analysis:"
+if command -v wasm-opt > /dev/null 2>&1; then
+    echo "  Using wasm-opt for analysis..."
+    wasm-opt "$WASM_DIR/$WASM_FILE" --print-function-sizes 2>/dev/null | head -n 20 || echo "  wasm-opt analysis failed"
+else
+    echo "  wasm-opt not found, skipping detailed analysis"
+    echo "  Install with: npm install -g binaryen"
+fi

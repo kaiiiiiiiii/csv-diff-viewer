@@ -45,10 +45,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
       
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -85,11 +82,9 @@ jobs:
           fetch-depth: 0  # Fetch all history for comparison
       
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: wasm32-unknown-unknown
-          override: true
+          targets: wasm32-unknown-unknown
       
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
@@ -102,8 +97,9 @@ jobs:
         id: wasm-size
         run: |
           SIZE=$(stat -c%s src-wasm/pkg/csv_diff_wasm_bg.wasm)
-          SIZE_KB=$(echo "scale=2; $SIZE / 1024" | bc)
-          SIZE_MB=$(echo "scale=3; $SIZE / 1048576" | bc)
+          # Use awk for portable arithmetic (no bc dependency)
+          SIZE_KB=$(awk "BEGIN {printf \"%.2f\", $SIZE / 1024}")
+          SIZE_MB=$(awk "BEGIN {printf \"%.3f\", $SIZE / 1048576}")
           echo "size_bytes=$SIZE" >> $GITHUB_OUTPUT
           echo "size_kb=$SIZE_KB" >> $GITHUB_OUTPUT
           echo "size_mb=$SIZE_MB" >> $GITHUB_OUTPUT
@@ -145,10 +141,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
       
       - name: Run performance benchmarks
         working-directory: src-wasm
