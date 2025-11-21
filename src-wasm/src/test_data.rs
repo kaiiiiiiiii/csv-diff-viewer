@@ -430,7 +430,7 @@ pub mod content_match_mode {
     /// Content match with similarity threshold
     pub const SIMILARITY_THRESHOLD: TestCase = TestCase {
         name: "similarity_threshold",
-        description: "Content match with similarity scoring (50% threshold)",
+        description: "Content match with strsim-based similarity scoring (50% threshold). With improved Jaro-Winkler and Levenshtein algorithms, similar rows like 'Alice,30,New York' and 'Alice,31,New York City' are correctly identified as modified rather than added/removed.",
         source_csv: "name,age,city\nAlice,30,New York\nBob,25,Los Angeles\nCharlie,35,Chicago",
         target_csv: "name,age,city\nAlice,31,New York City\nRobert,25,LA\nDavid,28,Seattle",
         options: TestOptions {
@@ -443,9 +443,12 @@ pub mod content_match_mode {
             has_headers: true,
         },
         expected: ExpectedResult {
-            added_count: 3,
-            removed_count: 3,
-            modified_count: 0,
+            // Alice row: matched as modified (name exact, age similar, city similar)
+            // Bob/Robert row: matched as modified (name somewhat similar, age exact, city related)
+            // Charlie/David row: not matched (too dissimilar)
+            added_count: 1,      // David,28,Seattle (no match)
+            removed_count: 1,    // Charlie,35,Chicago (no match)
+            modified_count: 2,   // Alice and Bob rows matched with modifications
             unchanged_count: 0,
             should_error: false,
             error_message: None,

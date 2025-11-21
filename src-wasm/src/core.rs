@@ -413,41 +413,16 @@ where
 
             for (cand_idx, _) in top_candidates {
                  let target_row = &target_rows[cand_idx];
-                 let mut match_count = 0;
-                 let mut total_compared = 0;
                  
-                 for header in &source_headers {
-                     if excluded_columns.contains(header) { continue; }
-                     
-                     let source_idx = source_header_map.get(header).unwrap();
-                     let target_idx = match target_header_map.get(header) {
-                        Some(idx) => idx,
-                        None => continue,
-                     };
-                     
-                     total_compared += 1;
-                     
-                     let source_val = normalize_value(
-                        source_row.get(*source_idx).unwrap_or(""),
-                        case_sensitive,
-                        ignore_whitespace
-                     );
-                     let target_val = normalize_value(
-                        target_row.get(*target_idx).unwrap_or(""),
-                        case_sensitive,
-                        ignore_whitespace
-                     );
-                     
-                     if source_val == target_val {
-                         match_count += 1;
-                     }
-                 }
-                 
-                 let score = if total_compared > 0 {
-                     match_count as f64 / total_compared as f64
-                 } else {
-                     0.0
-                 };
+                 // Use strsim-based similarity calculation for more accurate matching
+                 let score = calculate_row_similarity(
+                     source_row,
+                     target_row,
+                     &source_headers,
+                     &source_header_map,
+                     &target_header_map,
+                     &excluded_columns,
+                 );
 
                  if score > best_real_score {
                      best_real_score = score;
