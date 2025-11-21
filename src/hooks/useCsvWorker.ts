@@ -78,50 +78,17 @@ export function useCsvWorker() {
     [],
   )
 
-  const compareChunked = useCallback(
-    (
-      sourceRaw: string,
-      targetRaw: string,
-      options: any,
-      chunkStart: number,
-      chunkSize: number,
-      onProgress?: (percent: number, message: string) => void,
-    ) => {
+  const initDiffer = useCallback(
+    (sourceRaw: string, targetRaw: string, options: any) => {
       return new Promise((resolve, reject) => {
         const id = requestIdCounterRef.current++
-        const request: WorkerRequest = { id, resolve, reject, onProgress }
-        requestMapRef.current.set(id, request)
-        
-        // Listen for chunk-complete instead of compare-complete
-        const originalOnMessage = workerRef.current?.onmessage
-        workerRef.current!.onmessage = (e: MessageEvent) => {
-          const { requestId, type, data } = e.data
-          const req = requestMapRef.current.get(requestId)
-
-          if (!req) return
-
-          if (type === 'progress') {
-            req.onProgress?.(data.percent, data.message)
-          } else if (type === 'error') {
-            req.reject(new Error(data.message))
-            requestMapRef.current.delete(requestId)
-          } else if (type === 'chunk-complete') {
-            req.resolve(data)
-            requestMapRef.current.delete(requestId)
-          } else if (type.endsWith('-complete')) {
-            req.resolve(data)
-            requestMapRef.current.delete(requestId)
-          }
-        }
-
+        requestMapRef.current.set(id, { id, resolve, reject })
         workerRef.current?.postMessage({
           requestId: id,
-          type: 'compare-chunked',
+          type: 'init-differ',
           data: {
             sourceRaw,
             targetRaw,
-            chunkStart,
-            chunkSize,
             ...options,
           },
         })
@@ -130,5 +97,39 @@ export function useCsvWorker() {
     [],
   )
 
-  return { parse, compare, compareChunked }
+  const diffChunk = useCallback(
+    (
+      chunkStart: number,
+      chunkSize: number,
+      onProgress?: (percent: number, message: string) => void,
+    ) => {
+      return new Promise((resolve, reject) => {
+        const id = requestIdCounterRef.current++
+        requestMapRef.current.set(id, { id, resolve, reject, onProgress })
+        workerRef.current?.postMessage({
+          requestId: id,
+          type: 'diff-chunk',
+          data: {
+            chunkStart,
+            chunkSize,
+          },
+        })
+      })
+    },
+    [],
+  )
+
+  const cleanupDiffer = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      const id = requestIdCounterRef.current++
+      requestMapRef.current.set(id, { id, resolve, reject })
+      workerRef.current?.postMessage({
+        requestId: id,
+        type: 'cleanup-differ',
+        data: {},
+      })
+    })
+  }, [])
+
+  return { parse, compare, initDiffer, diffChunk, cleanupDiffer }
 }

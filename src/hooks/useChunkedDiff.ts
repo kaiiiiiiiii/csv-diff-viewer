@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { indexedDBManager } from '../lib/indexeddb'
 import { useCsvWorker } from './useCsvWorker'
-import type { DiffChunk, DiffMetadata } from '../lib/indexeddb';
+import type { DiffChunk, DiffMetadata } from '../lib/indexeddb'
 
 export interface ChunkedDiffOptions {
   comparisonMode: 'primary-key' | 'content-match'
@@ -24,7 +24,7 @@ export interface ChunkedDiffProgress {
 }
 
 export function useChunkedDiff() {
-  const { compareChunked } = useCsvWorker()
+  const { initDiffer, diffChunk, cleanupDiffer } = useCsvWorker()
   const [isProcessing, setIsProcessing] = useState(false)
   const [diffId, setDiffId] = useState<string | null>(null)
 
@@ -44,9 +44,10 @@ export function useChunkedDiff() {
       try {
         // Estimate total rows (rough estimate based on newlines)
         // For primary-key mode, we chunk target rows; for content-match, we chunk source rows
-        const rowsToChunk = options.comparisonMode === 'primary-key'
-          ? targetRaw.split('\n').length - (options.hasHeaders ? 1 : 0)
-          : sourceRaw.split('\n').length - (options.hasHeaders ? 1 : 0)
+        const rowsToChunk =
+          options.comparisonMode === 'primary-key'
+            ? targetRaw.split('\n').length - (options.hasHeaders ? 1 : 0)
+            : sourceRaw.split('\n').length - (options.hasHeaders ? 1 : 0)
         const chunkSize = options.chunkSize || 10000
         const totalChunks = Math.ceil(rowsToChunk / chunkSize)
 
@@ -64,10 +65,13 @@ export function useChunkedDiff() {
         }
         await indexedDBManager.saveMetadata(metadata)
 
+        // Initialize Differ
+        await initDiffer(sourceRaw, targetRaw, options)
+
         // Process chunks
         for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
           const chunkStart = chunkIndex * chunkSize
-          
+
           const chunkProgress: ChunkedDiffProgress = {
             currentChunk: chunkIndex + 1,
             totalChunks,
@@ -79,15 +83,13 @@ export function useChunkedDiff() {
           onProgress?.(chunkProgress)
 
           // Process chunk with WASM
-          const chunkResult = await compareChunked(
-            sourceRaw,
-            targetRaw,
-            options,
+          const chunkResult = await diffChunk(
             chunkStart,
             chunkSize,
             (percent, message) => {
-              const overallPercent = 
-                (chunkIndex / totalChunks) * 100 + (percent / 100) * (100 / totalChunks)
+              const overallPercent =
+                (chunkIndex / totalChunks) * 100 +
+                (percent / 100) * (100 / totalChunks)
               onProgress?.({
                 ...chunkProgress,
                 percent: overallPercent,
@@ -113,7 +115,10 @@ export function useChunkedDiff() {
 
           // Yield to browser to prevent UI freeze
           await new Promise((resolve) => {
-            if ('scheduler' in window && 'postTask' in (window as any).scheduler) {
+            if (
+              'scheduler' in window &&
+              'postTask' in (window as any).scheduler
+            ) {
               ;(window as any).scheduler.postTask(resolve)
             } else {
               queueMicrotask(resolve)
@@ -139,9 +144,11 @@ export function useChunkedDiff() {
       } catch (error) {
         setIsProcessing(false)
         throw error
+      } finally {
+        await cleanupDiffer()
       }
     },
-    [compareChunked],
+    [initDiffer, diffChunk, cleanupDiffer],
   )
 
   const loadDiffResults = useCallback(async (id: string) => {
@@ -151,7 +158,7 @@ export function useChunkedDiff() {
     }
 
     const chunks = await indexedDBManager.getChunksByDiffId(id)
-    
+
     // Merge chunks
     const result = {
       added: [] as Array<any>,
@@ -175,12 +182,15 @@ export function useChunkedDiff() {
     return result
   }, [])
 
-  const clearDiff = useCallback(async (id: string) => {
-    await indexedDBManager.clearDiff(id)
-    if (id === diffId) {
-      setDiffId(null)
-    }
-  }, [diffId])
+  const clearDiff = useCallback(
+    async (id: string) => {
+      await indexedDBManager.clearDiff(id)
+      if (id === diffId) {
+        setDiffId(null)
+      }
+    },
+    [diffId],
+  )
 
   const getStorageInfo = useCallback(async () => {
     const used = await indexedDBManager.getStorageSize()

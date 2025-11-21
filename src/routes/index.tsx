@@ -46,7 +46,11 @@ export const Route = createFileRoute('/')({
 
 function Index() {
   const { parse, compare } = useCsvWorker()
-  const { startChunkedDiff, loadDiffResults, isProcessing: isChunkedProcessing } = useChunkedDiff()
+  const {
+    startChunkedDiff,
+    loadDiffResults,
+    isProcessing: isChunkedProcessing,
+  } = useChunkedDiff()
   const [sourceData, setSourceData] = useState<{
     text: string
     name: string
@@ -79,6 +83,9 @@ function Index() {
   const [showOnlyDiffs, setShowOnlyDiffs] = useState(false)
 
   const [availableColumns, setAvailableColumns] = useState<Array<string>>([])
+  const [headerDetectionWarning, setHeaderDetectionWarning] = useState<
+    string | null
+  >(null)
   const resultsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -89,19 +96,49 @@ function Index() {
 
   const handleSourceChange = async (text: string, name: string) => {
     setSourceData({ text, name })
+    setHeaderDetectionWarning(null)
     // Parse to get headers for available columns
     if (text) {
       try {
         const res: any = await parse(text, name, hasHeaders)
         setAvailableColumns(res.headers)
+
+        // Check if auto-detection occurred (headers are Column1, Column2, etc.)
+        const hasAutoHeaders = res.headers.some((h: string) =>
+          h.startsWith('Column'),
+        )
+        if (hasAutoHeaders && hasHeaders) {
+          setHeaderDetectionWarning(
+            `Auto-detected that "${name}" doesn't have headers. Using generated column names (Column1, Column2, etc.). You can disable "Has Headers" if this is incorrect.`,
+          )
+        }
       } catch (e) {
         console.error(e)
       }
     }
   }
 
-  const handleTargetChange = (text: string, name: string) => {
+  const handleTargetChange = async (text: string, name: string) => {
     setTargetData({ text, name })
+    setHeaderDetectionWarning(null)
+    // Parse to get headers for available columns
+    if (text) {
+      try {
+        const res: any = await parse(text, name, hasHeaders)
+
+        // Check if auto-detection occurred (headers are Column1, Column2, etc.)
+        const hasAutoHeaders = res.headers.some((h: string) =>
+          h.startsWith('Column'),
+        )
+        if (hasAutoHeaders && hasHeaders) {
+          setHeaderDetectionWarning(
+            `Auto-detected that "${name}" doesn't have headers. Using generated column names (Column1, Column2, etc.). You can disable "Has Headers" if this is incorrect.`,
+          )
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    }
   }
 
   const handleLoadExample = () => {
@@ -227,6 +264,20 @@ function Index() {
           value={targetData?.text}
         />
       </div>
+      {headerDetectionWarning && (
+        <div className="bg-amber-50 border border-amber-200 rounded-md p-4">
+          <div className="flex">
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-amber-800">
+                Header Detection
+              </h3>
+              <div className="mt-2 text-sm text-amber-700">
+                <p>{headerDetectionWarning}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <ConfigPanel
         mode={mode}
         setMode={setMode}
@@ -259,15 +310,11 @@ function Index() {
           {loading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {progress ? (
-                progress.totalChunks ? (
-                  `${Math.round(progress.percent)}% - Chunk ${progress.currentChunk}/${progress.totalChunks}`
-                ) : (
-                  `${Math.round(progress.percent)}% - ${progress.message}`
-                )
-              ) : (
-                'Processing...'
-              )}
+              {progress
+                ? progress.totalChunks
+                  ? `${Math.round(progress.percent)}% - Chunk ${progress.currentChunk}/${progress.totalChunks}`
+                  : `${Math.round(progress.percent)}% - ${progress.message}`
+                : 'Processing...'}
             </>
           ) : (
             'Compare Files'

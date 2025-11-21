@@ -1,13 +1,13 @@
 import init, {
   diff_csv,
-  diff_csv_chunked,
   diff_csv_primary_key,
-  diff_csv_primary_key_chunked,
   parse_csv,
+  CsvDiffer,
 } from '../../src-wasm/pkg/csv_diff_wasm'
 
 const ctx: Worker = self as any
 let wasmInitialized = false
+let differ: CsvDiffer | null = null
 
 async function initWasm() {
   if (!wasmInitialized) {
@@ -69,7 +69,7 @@ ctx.onmessage = async function (e) {
 
       let results
       if (comparisonMode === 'primary-key') {
-        emitProgress(0, 'Starting WASM comparison (Primary Key)...')
+        emitProgress(0, 'Starting comparison (Primary Key)...')
         results = diff_csv_primary_key(
           sourceRaw,
           targetRaw,
@@ -81,9 +81,9 @@ ctx.onmessage = async function (e) {
           hasHeaders !== false,
           (percent: number, message: string) => emitProgress(percent, message),
         )
-        emitProgress(100, 'WASM comparison complete')
+        emitProgress(100, 'Comparison complete')
       } else {
-        emitProgress(0, 'Starting WASM comparison...')
+        emitProgress(0, 'Starting comparison (Content Match)...')
         results = diff_csv(
           sourceRaw,
           targetRaw,
@@ -94,65 +94,69 @@ ctx.onmessage = async function (e) {
           hasHeaders !== false,
           (percent: number, message: string) => emitProgress(percent, message),
         )
-        emitProgress(100, 'WASM comparison complete')
+        emitProgress(100, 'Comparison complete')
       }
 
       ctx.postMessage({ requestId, type: 'compare-complete', data: results })
-    } else if (type === 'compare-chunked') {
+    } else if (type === 'init-differ') {
       const {
+        sourceRaw,
+        targetRaw,
         comparisonMode,
         keyColumns,
         caseSensitive,
         ignoreWhitespace,
         ignoreEmptyVsNull,
         excludedColumns,
-        sourceRaw,
-        targetRaw,
         hasHeaders,
-        chunkStart,
-        chunkSize,
       } = data
 
-      if (!sourceRaw || !targetRaw) {
-        throw new Error('Raw CSV data is required for comparison.')
+      if (differ) {
+        differ.free()
+        differ = null
       }
 
-      emitProgress(0, `Starting chunk ${chunkStart}...`)
-      let results
-      
-      if (comparisonMode === 'primary-key') {
-        results = diff_csv_primary_key_chunked(
-          sourceRaw,
-          targetRaw,
-          keyColumns,
-          caseSensitive,
-          ignoreWhitespace,
-          ignoreEmptyVsNull,
-          excludedColumns,
-          hasHeaders !== false,
-          chunkStart,
-          chunkSize,
-          (percent: number, message: string) => emitProgress(percent, message),
-        )
-      } else {
-        // Content match mode
-        results = diff_csv_chunked(
-          sourceRaw,
-          targetRaw,
-          caseSensitive,
-          ignoreWhitespace,
-          ignoreEmptyVsNull,
-          excludedColumns,
-          hasHeaders !== false,
-          chunkStart,
-          chunkSize,
-          (percent: number, message: string) => emitProgress(percent, message),
-        )
-      }
-      
-      emitProgress(100, `Chunk ${chunkStart} complete`)
+      differ = new CsvDiffer(
+        sourceRaw,
+        targetRaw,
+        comparisonMode,
+        keyColumns,
+        caseSensitive,
+        ignoreWhitespace,
+        ignoreEmptyVsNull,
+        excludedColumns,
+        hasHeaders !== false,
+      )
 
-      ctx.postMessage({ requestId, type: 'chunk-complete', data: results })
+      ctx.postMessage({
+        requestId,
+        type: 'init-differ-complete',
+        data: { success: true },
+      })
+    } else if (type === 'diff-chunk') {
+      const { chunkStart, chunkSize } = data
+
+      if (!differ) {
+        throw new Error('Differ not initialized')
+      }
+
+      const results = differ.diff_chunk(
+        chunkStart,
+        chunkSize,
+        (percent: number, message: string) => emitProgress(percent, message),
+      )
+
+      ctx.postMessage({ requestId, type: 'diff-chunk-complete', data: results })
+    } else if (type === 'cleanup-differ') {
+      if (differ) {
+        differ.free()
+        differ = null
+      }
+      ctx.postMessage({
+        requestId,
+        type: 'cleanup-differ-complete',
+        data: { success: true },
+      })
     }
   } catch (error: any) {
     ctx.postMessage({

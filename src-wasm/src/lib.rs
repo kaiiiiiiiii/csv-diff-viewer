@@ -101,84 +101,64 @@ pub fn diff_text(old: &str, new: &str, case_sensitive: bool) -> Result<JsValue, 
     Ok(diffs.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))?)
 }
 
+/// Maintains parsed CSV state so chunked comparisons avoid reprocessing large inputs.
 #[wasm_bindgen]
-pub fn diff_csv_primary_key_chunked(
-    source_csv: &str,
-    target_csv: &str,
-    key_columns_val: JsValue,
-    case_sensitive: bool,
-    ignore_whitespace: bool,
-    ignore_empty_vs_null: bool,
-    excluded_columns_val: JsValue,
-    has_headers: bool,
-    chunk_start: usize,
-    chunk_size: usize,
-    on_progress: &Function,
-) -> Result<JsValue, JsValue> {
-    let key_columns: Vec<String> = serde_wasm_bindgen::from_value(key_columns_val)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let excluded_columns: Vec<String> = serde_wasm_bindgen::from_value(excluded_columns_val)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    let callback = |progress: f64, message: &str| {
-        let this = JsValue::NULL;
-        let _ = on_progress.call2(&this, &JsValue::from_f64(progress), &JsValue::from_str(message));
-    };
-
-    let result = core::diff_csv_primary_key_chunked(
-        source_csv,
-        target_csv,
-        key_columns,
-        case_sensitive,
-        ignore_whitespace,
-        ignore_empty_vs_null,
-        excluded_columns,
-        has_headers,
-        chunk_start,
-        chunk_size,
-        callback
-    ).map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    let serializer = serde_wasm_bindgen::Serializer::json_compatible();
-    Ok(result.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))?)
+pub struct CsvDiffer {
+    internal: core::CsvDifferInternal,
 }
 
 #[wasm_bindgen]
-pub fn diff_csv_chunked(
-    source_csv: &str,
-    target_csv: &str,
-    case_sensitive: bool,
-    ignore_whitespace: bool,
-    ignore_empty_vs_null: bool,
-    excluded_columns_val: JsValue,
-    has_headers: bool,
-    chunk_start: usize,
-    chunk_size: usize,
-    on_progress: &Function,
-) -> Result<JsValue, JsValue> {
-    let excluded_columns: Vec<String> = serde_wasm_bindgen::from_value(excluded_columns_val)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+impl CsvDiffer {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        source_csv: &str,
+        target_csv: &str,
+        comparison_mode: &str,
+        key_columns_val: JsValue,
+        case_sensitive: bool,
+        ignore_whitespace: bool,
+        ignore_empty_vs_null: bool,
+        excluded_columns_val: JsValue,
+        has_headers: bool,
+    ) -> Result<CsvDiffer, JsValue> {
+        let key_columns: Vec<String> = serde_wasm_bindgen::from_value(key_columns_val)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let excluded_columns: Vec<String> = serde_wasm_bindgen::from_value(excluded_columns_val)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-    let callback = |progress: f64, message: &str| {
-        let this = JsValue::NULL;
-        let _ = on_progress.call2(&this, &JsValue::from_f64(progress), &JsValue::from_str(message));
-    };
+        let internal = core::CsvDifferInternal::new(
+            source_csv,
+            target_csv,
+            key_columns,
+            case_sensitive,
+            ignore_whitespace,
+            ignore_empty_vs_null,
+            excluded_columns,
+            has_headers,
+            comparison_mode.to_string(),
+        ).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-    let result = core::diff_csv_chunked(
-        source_csv,
-        target_csv,
-        case_sensitive,
-        ignore_whitespace,
-        ignore_empty_vs_null,
-        excluded_columns,
-        has_headers,
-        chunk_start,
-        chunk_size,
-        callback
-    ).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(CsvDiffer { internal })
+    }
 
-    let serializer = serde_wasm_bindgen::Serializer::json_compatible();
-    Ok(result.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))?)
+    pub fn diff_chunk(
+        &mut self,
+        chunk_start: usize,
+        chunk_size: usize,
+        on_progress: &Function,
+    ) -> Result<JsValue, JsValue> {
+        let callback = |progress: f64, message: &str| {
+            let this = JsValue::NULL;
+            let _ = on_progress.call2(&this, &JsValue::from_f64(progress), &JsValue::from_str(message));
+        };
+
+        let result = self.internal
+            .diff_chunk(chunk_start, chunk_size, callback)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+        Ok(result.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))?)
+    }
 }
 
 #[cfg(test)]
