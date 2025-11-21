@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -7,13 +7,40 @@ import {
   useReactTable,
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ArrowUpDown, Expand, Maximize2, Minimize2, Shrink } from 'lucide-react'
+import {
+  ArrowUpDown,
+  Columns3,
+  Expand,
+  Filter,
+  Maximize2,
+  Minimize2,
+  Shrink,
+  X,
+} from 'lucide-react'
 import FullScreen from 'react-fullscreen-crossbrowser'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type {
+  ColumnDef,
+  ColumnFiltersState,
+  SortingState,
+  VisibilityState,
+} from '@tanstack/react-table'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  AdvancedSearchInput,
+  createAdvancedFilterFn,
+  parseSearchQuery,
+} from '@/components/AdvancedSearchInput'
 
 interface DiffResult {
   added: Array<any>
@@ -33,15 +60,42 @@ type DiffRow = any & {
   type: 'added' | 'removed' | 'modified' | 'unchanged'
 }
 
+const STORAGE_KEY = 'csv-diff-viewer-column-visibility'
+
 export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
   const [activeFilter, setActiveFilter] = useState<
     'all' | 'added' | 'removed' | 'modified'
   >('all')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
+  const [showColumnFilters, setShowColumnFilters] = useState(false)
   const parentRef = useRef<HTMLDivElement>(null)
+
+  // Load column visibility from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        setColumnVisibility(parsed)
+      }
+    } catch (error) {
+      console.error('Failed to load column visibility from localStorage:', error)
+    }
+  }, [])
+
+  // Save column visibility to localStorage when it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(columnVisibility))
+    } catch (error) {
+      console.error('Failed to save column visibility to localStorage:', error)
+    }
+  }, [columnVisibility])
 
   // 1. Prepare Data
   const data = useMemo(() => {
@@ -60,23 +114,25 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
   }, [results, showOnlyDiffs])
 
   // 2. Define Columns
+  const availableColumns = useMemo(() => {
+    const sourceHeaders = results.source.headers
+    const targetHeaders = results.target.headers
+
+    // Create a union of headers while preserving order as much as possible
+    const headerSet = new Set(targetHeaders)
+    const combinedHeaders = [...targetHeaders]
+
+    sourceHeaders.forEach((h) => {
+      if (!headerSet.has(h)) {
+        combinedHeaders.push(h)
+      }
+    })
+
+    return combinedHeaders.length > 0 ? combinedHeaders : sourceHeaders
+  }, [results])
+
   const columns = useMemo<Array<ColumnDef<DiffRow>>>(() => {
-    const headers = (() => {
-      const sourceHeaders = results.source.headers
-      const targetHeaders = results.target.headers
-
-      // Create a union of headers while preserving order as much as possible
-      const headerSet = new Set(targetHeaders)
-      const combinedHeaders = [...targetHeaders]
-
-      sourceHeaders.forEach((h) => {
-        if (!headerSet.has(h)) {
-          combinedHeaders.push(h)
-        }
-      })
-
-      return combinedHeaders.length > 0 ? combinedHeaders : sourceHeaders
-    })()
+    const headers = availableColumns
 
     const dynamicCols: Array<ColumnDef<DiffRow>> = headers.map(
       (header, index) => ({
@@ -88,6 +144,9 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
           if (row.type === 'modified') return row.targetRow[header]
           return ''
         },
+        enableColumnFilter: true,
+        enableHiding: true,
+        filterFn: 'includesString',
         header: ({ column }) => {
           return (
             <div
@@ -172,6 +231,9 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
         accessorKey: 'type',
         header: 'Type',
         size: 100,
+        enableColumnFilter: true,
+        enableHiding: true,
+        filterFn: 'equalsString',
         cell: (info) => (
           <Badge
             variant={
@@ -197,19 +259,29 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
       },
       ...dynamicCols,
     ]
-  }, [results])
+  }, [results, availableColumns])
 
   // 3. Initialize Table
+  const globalFilterFn = useMemo(() => {
+    const tokens = parseSearchQuery(globalFilter)
+    return createAdvancedFilterFn(tokens)
+  }, [globalFilter])
+
   const table = useReactTable({
     data,
     columns,
-    getRowId: (row, index) => String(index),
+    getRowId: (_row, index) => String(index),
     state: {
       sorting,
       globalFilter,
+      columnFilters,
+      columnVisibility,
     },
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
+    onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
+    globalFilterFn,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -260,11 +332,12 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
         )}
       >
         <div className="flex items-center py-2 gap-2">
-          <Input
-            placeholder="Filter all columns..."
+          <AdvancedSearchInput
+            placeholder='Advanced search (try: term1 OR term2, -exclude, "exact phrase", column:value)...'
             value={globalFilter}
-            onChange={(event) => setGlobalFilter(event.target.value)}
-            className="max-w-sm"
+            onChange={setGlobalFilter}
+            availableColumns={availableColumns}
+            className="flex-1 max-w-2xl"
           />
 
           <div className="flex items-center gap-2 ml-2">
@@ -323,6 +396,51 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
             <span className="text-sm text-muted-foreground mr-2">
               {filteredRows.length} rows found
             </span>
+            
+            {/* Column Filters Toggle */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowColumnFilters(!showColumnFilters)}
+              className="h-8"
+            >
+              <Filter className="h-4 w-4 mr-2" />
+              Column Filters
+            </Button>
+
+            {/* Column Visibility Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8">
+                  <Columns3 className="h-4 w-4 mr-2" />
+                  Columns
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[200px]">
+                <DropdownMenuLabel>Toggle Columns</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {table
+                  .getAllColumns()
+                  .filter((column) => column.getCanHide())
+                  .map((column) => {
+                    return (
+                      <DropdownMenuCheckboxItem
+                        key={column.id}
+                        className="capitalize"
+                        checked={column.getIsVisible()}
+                        onCheckedChange={(value) =>
+                          column.toggleVisibility(!!value)
+                        }
+                      >
+                        {column.id.startsWith('__diff_type__')
+                          ? 'Type'
+                          : column.id.replace(/_\d+$/, '')}
+                      </DropdownMenuCheckboxItem>
+                    )
+                  })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <div className="flex items-center border rounded-md bg-background">
               <Button
                 variant="ghost"
@@ -388,6 +506,45 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
                     ))}
                   </tr>
                 ))}
+                {showColumnFilters && (
+                  <tr className="border-b bg-muted/30">
+                    {table.getAllLeafColumns().map((column) => {
+                      if (!column.getIsVisible()) return null
+                      return (
+                        <th
+                          key={column.id}
+                          className="px-2 py-2"
+                          style={{ width: column.getSize() }}
+                        >
+                          {column.getCanFilter() ? (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                placeholder={`Filter...`}
+                                value={
+                                  (column.getFilterValue() as string | undefined) ?? ''
+                                }
+                                onChange={(e) =>
+                                  column.setFilterValue(e.target.value)
+                                }
+                                className="h-8 text-xs"
+                              />
+                              {!!column.getFilterValue() && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 shrink-0"
+                                  onClick={() => column.setFilterValue(undefined)}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                          ) : null}
+                        </th>
+                      )
+                    })}
+                  </tr>
+                )}
               </thead>
               <tbody>
                 {paddingTop > 0 && (
