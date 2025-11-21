@@ -303,6 +303,23 @@ where
         );
         target_fingerprint_lookup.entry(fp).or_default().push(idx);
     }
+
+    // Build value lookup for fuzzy matching optimization
+    // Map: (column_index, value) -> Vec<target_row_index>
+    let mut target_value_lookup: AHashMap<(usize, String), Vec<usize>> = AHashMap::new();
+    for (row_idx, row) in target_rows.iter().enumerate() {
+        for (col_idx, cell) in row.iter().enumerate() {
+             let header = &target_headers[col_idx];
+             if excluded_columns.contains(header) {
+                 continue;
+             }
+             if cell.trim().is_empty() {
+                 continue;
+             }
+             let key = (col_idx, cell.to_string());
+             target_value_lookup.entry(key).or_default().push(row_idx);
+        }
+    }
     
     let mut row_counter = 1;
     let total_rows = source_rows.len();
@@ -346,8 +363,32 @@ where
             let mut best_match_idx: Option<usize> = None;
             let mut best_similarity_score = 0.0;
 
-            // Calculate similarity with all unmatched target rows
-            for &target_idx in unmatched_target_indices.iter() {
+            // Optimization: Find candidates that share at least one value
+            let mut candidates: AHashSet<usize> = AHashSet::new();
+            
+            for (col_idx, cell) in source_row.iter().enumerate() {
+                let header = &source_headers[col_idx];
+                if excluded_columns.contains(header) {
+                    continue;
+                }
+                if cell.trim().is_empty() {
+                    continue;
+                }
+                
+                if let Some(&target_col_idx) = target_header_map.get(header) {
+                     let key = (target_col_idx, cell.to_string());
+                     if let Some(indices) = target_value_lookup.get(&key) {
+                         for &idx in indices {
+                             if unmatched_target_indices.contains(&idx) {
+                                 candidates.insert(idx);
+                             }
+                         }
+                     }
+                }
+            }
+
+            // Calculate similarity only with candidates
+            for &target_idx in candidates.iter() {
                 let target_row = &target_rows[target_idx];
                 
                 let similarity = calculate_row_similarity(
