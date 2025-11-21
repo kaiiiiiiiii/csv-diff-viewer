@@ -284,13 +284,13 @@ where
     let mut modified = Vec::new();
     let mut unchanged = Vec::new();
 
-    on_progress(20.0, "Indexing target rows...");
+    on_progress(20.0, "Building fingerprint index for exact matches...");
     
+    // Track unmatched target rows
     let mut unmatched_target_indices: AHashSet<usize> = (0..target_rows.len()).collect();
     
+    // Build fingerprint lookup for exact matches only
     let mut target_fingerprint_lookup: AHashMap<String, Vec<usize>> = AHashMap::new();
-    let mut inverted_index: AHashMap<(usize, String), Vec<usize>> = AHashMap::new();
-
     for (idx, row) in target_rows.iter().enumerate() {
         let fp = get_row_fingerprint(
             row, 
@@ -302,32 +302,20 @@ where
             &excluded_columns
         );
         target_fingerprint_lookup.entry(fp).or_default().push(idx);
-
-        for (col_idx, header) in source_headers.iter().enumerate() {
-            if excluded_columns.contains(header) {
-                continue;
-            }
-            if let Some(&target_col_idx) = target_header_map.get(header) {
-                if let Some(val) = row.get(target_col_idx) {
-                    let norm_val = normalize_value(val, case_sensitive, ignore_whitespace);
-                    inverted_index.entry((col_idx, norm_val)).or_default().push(idx);
-                }
-            }
-        }
     }
     
     let mut row_counter = 1;
     let total_rows = source_rows.len();
-    
-    let mut candidate_scores: AHashMap<usize, usize> = AHashMap::new();
-    let mut row_tokens: Vec<(usize, usize, String)> = Vec::new();
+
+    on_progress(30.0, "Matching rows using strsim algorithms...");
 
     for (i, source_row) in source_rows.iter().enumerate() {
         if i % 100 == 0 {
-            let progress = 20.0 + (i as f64 / total_rows as f64) * 70.0;
-            on_progress(progress, "Comparing rows...");
+            let progress = 30.0 + (i as f64 / total_rows as f64) * 60.0;
+            on_progress(progress, "Comparing rows with fuzzy matching...");
         }
 
+        // First try exact match via fingerprint
         let source_fingerprint = get_row_fingerprint(
             source_row, 
             &source_headers, 
@@ -339,7 +327,6 @@ where
         );
 
         let mut matched_exact = false;
-
         if let Some(indices) = target_fingerprint_lookup.get_mut(&source_fingerprint) {
             while let Some(target_idx) = indices.pop() {
                 if unmatched_target_indices.contains(&target_idx) {
@@ -354,109 +341,33 @@ where
             }
         }
 
+        // If no exact match, use strsim-based fuzzy matching
         if !matched_exact {
-            candidate_scores.clear();
-            row_tokens.clear();
-            
-            for (col_idx, header) in source_headers.iter().enumerate() {
-                if excluded_columns.contains(header) {
-                    continue;
-                }
-                
-                if let Some(&source_col_idx) = source_header_map.get(header) {
-                    let source_val = normalize_value(
-                        source_row.get(source_col_idx).unwrap_or(""),
-                        case_sensitive,
-                        ignore_whitespace
-                    );
-
-                    if let Some(target_indices) = inverted_index.get(&(col_idx, source_val.clone())) {
-                        row_tokens.push((target_indices.len(), col_idx, source_val));
-                    }
-                }
-            }
-
-            row_tokens.sort_by(|a, b| a.0.cmp(&b.0));
-
-            let mut budget = 2000;
-            
-            for (count, col_idx, val) in &row_tokens {
-                if *count == 0 { continue; }
-                if budget == 0 { break; }
-                
-                if *count > budget && !candidate_scores.is_empty() {
-                    break;
-                }
-                
-                if *count > 10000 {
-                    break;
-                }
-
-                if let Some(target_indices) = inverted_index.get(&(*col_idx, val.clone())) {
-                    for &target_idx in target_indices {
-                        if unmatched_target_indices.contains(&target_idx) {
-                            *candidate_scores.entry(target_idx).or_default() += 1;
-                        }
-                    }
-                    budget = budget.saturating_sub(*count);
-                }
-            }
-
-            let mut top_candidates: Vec<(usize, usize)> = candidate_scores.iter().map(|(&k, &v)| (k, v)).collect();
-            top_candidates.sort_by(|a, b| b.1.cmp(&a.1));
-            if top_candidates.len() > 10 {
-                top_candidates.truncate(10);
-            }
-
             let mut best_match_idx: Option<usize> = None;
-            let mut best_real_score = 0.0;
+            let mut best_similarity_score = 0.0;
 
-            for (cand_idx, _) in top_candidates {
-                 let target_row = &target_rows[cand_idx];
-                 let mut match_count = 0;
-                 let mut total_compared = 0;
-                 
-                 for header in &source_headers {
-                     if excluded_columns.contains(header) { continue; }
-                     
-                     let source_idx = source_header_map.get(header).unwrap();
-                     let target_idx = match target_header_map.get(header) {
-                        Some(idx) => idx,
-                        None => continue,
-                     };
-                     
-                     total_compared += 1;
-                     
-                     let source_val = normalize_value(
-                        source_row.get(*source_idx).unwrap_or(""),
-                        case_sensitive,
-                        ignore_whitespace
-                     );
-                     let target_val = normalize_value(
-                        target_row.get(*target_idx).unwrap_or(""),
-                        case_sensitive,
-                        ignore_whitespace
-                     );
-                     
-                     if source_val == target_val {
-                         match_count += 1;
-                     }
-                 }
-                 
-                 let score = if total_compared > 0 {
-                     match_count as f64 / total_compared as f64
-                 } else {
-                     0.0
-                 };
+            // Calculate similarity with all unmatched target rows
+            for &target_idx in unmatched_target_indices.iter() {
+                let target_row = &target_rows[target_idx];
+                
+                let similarity = calculate_row_similarity(
+                    source_row,
+                    target_row,
+                    &source_headers,
+                    &source_header_map,
+                    &target_header_map,
+                    &excluded_columns,
+                );
 
-                 if score > best_real_score {
-                     best_real_score = score;
-                     best_match_idx = Some(cand_idx);
-                 }
+                if similarity > best_similarity_score {
+                    best_similarity_score = similarity;
+                    best_match_idx = Some(target_idx);
+                }
             }
 
+            // Threshold for considering a match (50% similarity)
             if let Some(idx) = best_match_idx {
-                if best_real_score > 0.5 {
+                if best_similarity_score > 0.5 {
                     let target_row = &target_rows[idx];
                     let mut differences = Vec::new();
 
@@ -507,13 +418,15 @@ where
                     });
                     unmatched_target_indices.remove(&idx);
                 } else {
+                    // Similarity too low, consider as removed
                     removed.push(RemovedRow {
                         key: format!("Removed {}", removed.len() + 1),
                         source_row: record_to_hashmap(source_row, &source_headers),
                     });
                 }
             } else {
-                 removed.push(RemovedRow {
+                // No candidates at all
+                removed.push(RemovedRow {
                     key: format!("Removed {}", removed.len() + 1),
                     source_row: record_to_hashmap(source_row, &source_headers),
                 });
@@ -522,6 +435,8 @@ where
         row_counter += 1;
     }
 
+    // All remaining unmatched target rows are added
+    on_progress(90.0, "Processing remaining rows...");
     let mut added_index = 1;
     let mut remaining_indices: Vec<_> = unmatched_target_indices.into_iter().collect();
     remaining_indices.sort();
@@ -608,7 +523,6 @@ pub struct CsvDifferInternal {
     // Content Match Mode State
     unmatched_target_indices: Option<AHashSet<usize>>,
     target_fingerprint_lookup: Option<AHashMap<String, Vec<usize>>>,
-    inverted_index: Option<AHashMap<(usize, String), Vec<usize>>>,
 }
 
 impl CsvDifferInternal {
@@ -651,7 +565,6 @@ impl CsvDifferInternal {
             target_map: None,
             unmatched_target_indices: None,
             target_fingerprint_lookup: None,
-            inverted_index: None,
         };
 
         if mode == "primary-key" {
@@ -701,8 +614,8 @@ impl CsvDifferInternal {
     fn init_content_match(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let unmatched_target_indices: AHashSet<usize> = (0..self.target_rows.len()).collect();
         let mut target_fingerprint_lookup: AHashMap<String, Vec<usize>> = AHashMap::new();
-        let mut inverted_index: AHashMap<(usize, String), Vec<usize>> = AHashMap::new();
 
+        // Build fingerprint lookup for exact matches only
         for (idx, row) in self.target_rows.iter().enumerate() {
             let fp = get_row_fingerprint(
                 row, 
@@ -714,23 +627,10 @@ impl CsvDifferInternal {
                 &self.excluded_columns
             );
             target_fingerprint_lookup.entry(fp).or_default().push(idx);
-
-            for (col_idx, header) in self.source_headers.iter().enumerate() {
-                if self.excluded_columns.contains(header) {
-                    continue;
-                }
-                if let Some(&target_col_idx) = self.target_header_map.get(header) {
-                    if let Some(val) = row.get(target_col_idx) {
-                        let norm_val = normalize_value(val, self.case_sensitive, self.ignore_whitespace);
-                        inverted_index.entry((col_idx, norm_val)).or_default().push(idx);
-                    }
-                }
-            }
         }
 
         self.unmatched_target_indices = Some(unmatched_target_indices);
         self.target_fingerprint_lookup = Some(target_fingerprint_lookup);
-        self.inverted_index = Some(inverted_index);
         Ok(())
     }
 
@@ -858,7 +758,6 @@ impl CsvDifferInternal {
     where F: FnMut(f64, &str) {
         let unmatched_target_indices = self.unmatched_target_indices.as_mut().unwrap();
         let target_fingerprint_lookup = self.target_fingerprint_lookup.as_mut().unwrap();
-        let inverted_index = self.inverted_index.as_ref().unwrap();
 
         let mut added = Vec::new();
         let mut removed = Vec::new();
@@ -868,15 +767,13 @@ impl CsvDifferInternal {
         let chunk_end = (chunk_start + chunk_size).min(self.source_rows.len());
         let mut row_counter = chunk_start + 1;
 
-        let mut candidate_scores: AHashMap<usize, usize> = AHashMap::new();
-        let mut row_tokens: Vec<(usize, usize, String)> = Vec::new();
-
         for (i, source_row) in self.source_rows.iter().enumerate().skip(chunk_start).take(chunk_end - chunk_start) {
              if (i - chunk_start) % 50 == 0 {
                 let chunk_progress = (i - chunk_start) as f64 / (chunk_end - chunk_start) as f64;
-                on_progress(chunk_progress * 100.0, &format!("Processing row {} of chunk...", i - chunk_start));
+                on_progress(chunk_progress * 100.0, &format!("Fuzzy matching row {} of chunk...", i - chunk_start));
             }
 
+            // Try exact match via fingerprint first
             let source_fingerprint = get_row_fingerprint(
                 source_row, 
                 &self.source_headers, 
@@ -888,7 +785,6 @@ impl CsvDifferInternal {
             );
 
             let mut matched_exact = false;
-
             if let Some(indices) = target_fingerprint_lookup.get_mut(&source_fingerprint) {
                 while let Some(target_idx) = indices.pop() {
                     if unmatched_target_indices.contains(&target_idx) {
@@ -903,87 +799,33 @@ impl CsvDifferInternal {
                 }
             }
 
+            // If no exact match, use strsim-based fuzzy matching
             if !matched_exact {
-                candidate_scores.clear();
-                row_tokens.clear();
-                
-                for (col_idx, header) in self.source_headers.iter().enumerate() {
-                    if self.excluded_columns.contains(header) { continue; }
-                    
-                    if let Some(&source_col_idx) = self.source_header_map.get(header) {
-                        let source_val = normalize_value(
-                            source_row.get(source_col_idx).unwrap_or(""),
-                            self.case_sensitive,
-                            self.ignore_whitespace
-                        );
-
-                        if let Some(target_indices) = inverted_index.get(&(col_idx, source_val.clone())) {
-                            row_tokens.push((target_indices.len(), col_idx, source_val));
-                        }
-                    }
-                }
-
-                row_tokens.sort_by(|a, b| a.0.cmp(&b.0));
-
-                let mut budget = 2000;
-                for (count, col_idx, val) in &row_tokens {
-                    if *count == 0 { continue; }
-                    if budget == 0 { break; }
-                    if *count > budget && !candidate_scores.is_empty() { break; }
-                    if *count > 10000 { break; }
-
-                    if let Some(target_indices) = inverted_index.get(&(*col_idx, val.clone())) {
-                        for &target_idx in target_indices {
-                            if unmatched_target_indices.contains(&target_idx) {
-                                *candidate_scores.entry(target_idx).or_default() += 1;
-                            }
-                        }
-                        budget = budget.saturating_sub(*count);
-                    }
-                }
-
-                let mut top_candidates: Vec<(usize, usize)> = candidate_scores.iter().map(|(&k, &v)| (k, v)).collect();
-                top_candidates.sort_by(|a, b| b.1.cmp(&a.1));
-                if top_candidates.len() > 10 { top_candidates.truncate(10); }
-
                 let mut best_match_idx: Option<usize> = None;
-                let mut best_real_score = 0.0;
+                let mut best_similarity_score = 0.0;
 
-                for (cand_idx, _) in top_candidates {
-                    let target_row = &self.target_rows[cand_idx];
-                    let mut match_count = 0;
-                    let mut total_compared = 0;
+                // Calculate similarity with all unmatched target rows
+                for &target_idx in unmatched_target_indices.iter() {
+                    let target_row = &self.target_rows[target_idx];
                     
-                    for header in &self.source_headers {
-                        if self.excluded_columns.contains(header) { continue; }
-                        let source_idx = self.source_header_map.get(header).unwrap();
-                        let target_idx = match self.target_header_map.get(header) {
-                            Some(idx) => idx,
-                            None => continue,
-                        };
-                        total_compared += 1;
-                        let source_val = normalize_value(
-                            source_row.get(*source_idx).unwrap_or(""),
-                            self.case_sensitive,
-                            self.ignore_whitespace
-                        );
-                        let target_val = normalize_value(
-                            target_row.get(*target_idx).unwrap_or(""),
-                            self.case_sensitive,
-                            self.ignore_whitespace
-                        );
-                        if source_val == target_val { match_count += 1; }
-                    }
-                    
-                    let score = if total_compared > 0 { match_count as f64 / total_compared as f64 } else { 0.0 };
-                    if score > best_real_score {
-                        best_real_score = score;
-                        best_match_idx = Some(cand_idx);
+                    let similarity = calculate_row_similarity(
+                        source_row,
+                        target_row,
+                        &self.source_headers,
+                        &self.source_header_map,
+                        &self.target_header_map,
+                        &self.excluded_columns,
+                    );
+
+                    if similarity > best_similarity_score {
+                        best_similarity_score = similarity;
+                        best_match_idx = Some(target_idx);
                     }
                 }
 
+                // Threshold for considering a match (50% similarity)
                 if let Some(idx) = best_match_idx {
-                    if best_real_score > 0.5 {
+                    if best_similarity_score > 0.5 {
                         let target_row = &self.target_rows[idx];
                         let mut differences = Vec::new();
                         for header in &self.source_headers {

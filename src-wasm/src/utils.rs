@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use csv::StringRecord;
 use ahash::AHashMap;
+use strsim::{jaro_winkler, normalized_levenshtein};
 
 pub fn normalize_value(value: &str, case_sensitive: bool, ignore_whitespace: bool) -> String {
     let mut val = value.to_string();
@@ -84,4 +85,64 @@ pub fn record_to_hashmap(
     headers.iter().enumerate()
         .map(|(i, h)| (h.clone(), row.get(i).unwrap_or("").to_string()))
         .collect()
+}
+
+/// Calculate string similarity using Jaro-Winkler algorithm.
+/// Returns a value between 0.0 (completely different) and 1.0 (identical).
+/// Best for short strings like names and identifiers.
+pub fn similarity_jaro_winkler(s1: &str, s2: &str) -> f64 {
+    jaro_winkler(s1, s2)
+}
+
+/// Calculate string similarity using normalized Levenshtein distance.
+/// Returns a value between 0.0 (completely different) and 1.0 (identical).
+/// Good for general-purpose string comparison.
+pub fn similarity_levenshtein(s1: &str, s2: &str) -> f64 {
+    normalized_levenshtein(s1, s2)
+}
+
+/// Calculate row similarity score using strsim algorithms.
+/// Combines Jaro-Winkler for short fields and Levenshtein for longer text.
+/// Returns a value between 0.0 and 1.0 where higher means more similar.
+pub fn calculate_row_similarity(
+    row1: &StringRecord,
+    row2: &StringRecord,
+    headers: &[String],
+    header_map1: &AHashMap<String, usize>,
+    header_map2: &AHashMap<String, usize>,
+    excluded_columns: &[String],
+) -> f64 {
+    let mut total_similarity = 0.0;
+    let mut compared_fields = 0;
+
+    for header in headers {
+        if excluded_columns.contains(header) {
+            continue;
+        }
+
+        let idx1 = header_map1.get(header);
+        let idx2 = header_map2.get(header);
+
+        if let (Some(&i1), Some(&i2)) = (idx1, idx2) {
+            let val1 = row1.get(i1).unwrap_or("");
+            let val2 = row2.get(i2).unwrap_or("");
+
+            // Use Jaro-Winkler for short strings (better for names, IDs)
+            // Use Levenshtein for longer strings (better for descriptions)
+            let similarity = if val1.len() <= 20 && val2.len() <= 20 {
+                jaro_winkler(val1, val2)
+            } else {
+                normalized_levenshtein(val1, val2)
+            };
+
+            total_similarity += similarity;
+            compared_fields += 1;
+        }
+    }
+
+    if compared_fields > 0 {
+        total_similarity / compared_fields as f64
+    } else {
+        0.0
+    }
 }
