@@ -20,7 +20,7 @@ This guide documents the new UI elements added to the DiffTable component for ad
 - When active, displays filter input boxes below each column header
 - Button style: Outlined, small size (h-8)
 
-**Code Location**: `src/components/DiffTable.tsx`, lines ~380-386
+**Code Location**: `src/components/DiffTable.tsx`, in the toolbar section (right-side controls)
 
 ### 2. Columns Dropdown Menu
 
@@ -50,7 +50,7 @@ Toggle Columns
 ☑ department
 ```
 
-**Code Location**: `src/components/DiffTable.tsx`, lines ~388-414
+**Code Location**: `src/components/DiffTable.tsx`, in the toolbar section (DropdownMenu component)
 
 ### 3. Column Filter Row
 
@@ -76,7 +76,7 @@ Toggle Columns
 - Light background (bg-muted/30) to distinguish from data rows
 - Only visible when "Column Filters" button is toggled on
 
-**Code Location**: `src/components/DiffTable.tsx`, lines ~490-524
+**Code Location**: `src/components/DiffTable.tsx`, in the thead section (conditional filter row)
 
 ## Complete Toolbar Layout
 
