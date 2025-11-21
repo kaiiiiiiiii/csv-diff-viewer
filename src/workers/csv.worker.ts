@@ -2,16 +2,29 @@ import init, {
   CsvDiffer,
   diff_csv,
   diff_csv_primary_key,
+  diff_csv_binary,
+  diff_csv_primary_key_binary,
+  get_binary_result_length,
+  dealloc,
   parse_csv,
 } from "../../src-wasm/pkg/csv_diff_wasm";
+import { decodeBinaryResult } from "../lib/binary-decoder";
 
 const ctx: Worker = self as any;
 let wasmInitialized = false;
 let differ: CsvDiffer | null = null;
+let wasmMemory: WebAssembly.Memory | null = null;
+
+// Configuration flag to enable binary encoding (can be controlled by the caller)
+// Set to true for maximum performance, false for easier debugging
+const USE_BINARY_ENCODING = true;
 
 async function initWasm() {
   if (!wasmInitialized) {
-    await init();
+    const wasmExports = await init();
+    // Access memory from the initialized WASM module
+    // The init() function returns the wasm exports which includes memory
+    wasmMemory = wasmExports.memory;
     wasmInitialized = true;
   }
 }
@@ -68,33 +81,86 @@ ctx.onmessage = async function (e) {
       }
 
       let results;
-      if (comparisonMode === "primary-key") {
-        emitProgress(0, "Starting comparison (Primary Key)...");
-        results = diff_csv_primary_key(
-          sourceRaw,
-          targetRaw,
-          keyColumns,
-          caseSensitive,
-          ignoreWhitespace,
-          ignoreEmptyVsNull,
-          excludedColumns,
-          hasHeaders !== false,
-          (percent: number, message: string) => emitProgress(percent, message),
-        );
-        emitProgress(100, "Comparison complete");
+      if (USE_BINARY_ENCODING) {
+        // Use high-performance binary encoding
+        if (comparisonMode === "primary-key") {
+          emitProgress(0, "Starting comparison (Primary Key, Binary)...");
+          const resultPtr = diff_csv_primary_key_binary(
+            sourceRaw,
+            targetRaw,
+            keyColumns,
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            excludedColumns,
+            hasHeaders !== false,
+            (percent: number, message: string) => emitProgress(percent, message),
+          );
+          
+          // Decode binary result
+          const resultLength = get_binary_result_length();
+          if (!wasmMemory) {
+            throw new Error("WASM memory not initialized");
+          }
+          results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
+          
+          // Clean up WASM memory
+          dealloc(resultPtr, resultLength);
+          emitProgress(100, "Comparison complete");
+        } else {
+          emitProgress(0, "Starting comparison (Content Match, Binary)...");
+          const resultPtr = diff_csv_binary(
+            sourceRaw,
+            targetRaw,
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            excludedColumns,
+            hasHeaders !== false,
+            (percent: number, message: string) => emitProgress(percent, message),
+          );
+          
+          // Decode binary result
+          const resultLength = get_binary_result_length();
+          if (!wasmMemory) {
+            throw new Error("WASM memory not initialized");
+          }
+          results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
+          
+          // Clean up WASM memory
+          dealloc(resultPtr, resultLength);
+          emitProgress(100, "Comparison complete");
+        }
       } else {
-        emitProgress(0, "Starting comparison (Content Match)...");
-        results = diff_csv(
-          sourceRaw,
-          targetRaw,
-          caseSensitive,
-          ignoreWhitespace,
-          ignoreEmptyVsNull,
-          excludedColumns,
-          hasHeaders !== false,
-          (percent: number, message: string) => emitProgress(percent, message),
-        );
-        emitProgress(100, "Comparison complete");
+        // Use traditional JSON encoding (for debugging or compatibility)
+        if (comparisonMode === "primary-key") {
+          emitProgress(0, "Starting comparison (Primary Key)...");
+          results = diff_csv_primary_key(
+            sourceRaw,
+            targetRaw,
+            keyColumns,
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            excludedColumns,
+            hasHeaders !== false,
+            (percent: number, message: string) => emitProgress(percent, message),
+          );
+          emitProgress(100, "Comparison complete");
+        } else {
+          emitProgress(0, "Starting comparison (Content Match)...");
+          results = diff_csv(
+            sourceRaw,
+            targetRaw,
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            excludedColumns,
+            hasHeaders !== false,
+            (percent: number, message: string) => emitProgress(percent, message),
+          );
+          emitProgress(100, "Comparison complete");
+        }
       }
 
       ctx.postMessage({ requestId, type: "compare-complete", data: results });
