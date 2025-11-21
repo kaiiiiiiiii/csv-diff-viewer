@@ -11,11 +11,13 @@ This guide documents the new UI elements added to the DiffTable component for ad
 **Location**: Top toolbar, between the change type badges and the "Columns" button
 
 **Appearance**:
+
 ```
 [Filter Icon] Column Filters
 ```
 
 **Functionality**:
+
 - Toggles the visibility of the column filter row
 - When active, displays filter input boxes below each column header
 - Button style: Outlined, small size (h-8)
@@ -27,11 +29,13 @@ This guide documents the new UI elements added to the DiffTable component for ad
 **Location**: Top-right toolbar, next to the expand/fullscreen buttons
 
 **Appearance**:
+
 ```
 [Columns Icon] Columns ▼
 ```
 
 **Functionality**:
+
 - Opens a dropdown menu with checkboxes for each column
 - Allows users to show/hide individual columns
 - Displays "Toggle Columns" header
@@ -40,6 +44,7 @@ This guide documents the new UI elements added to the DiffTable component for ad
 - Button style: Outlined, small size (h-8)
 
 **Menu Structure**:
+
 ```
 Toggle Columns
 ─────────────
@@ -59,6 +64,7 @@ Toggle Columns
 **Appearance**: A row with filter input boxes for each visible column
 
 **Structure**:
+
 ```
 ┌────────┬──────────┬──────────┬──────────┬──────────┐
 │ Type   │ id       │ name     │ role     │ dept     │ (Headers)
@@ -70,6 +76,7 @@ Toggle Columns
 ```
 
 **Features**:
+
 - Small text input (h-8, text-xs) for each column
 - Placeholder text: "Filter..."
 - Clear button (X icon) appears when text is entered
@@ -92,10 +99,12 @@ The toolbar now has the following structure:
 ```
 
 **Left Section**:
+
 - Global filter input (existing)
 - Change type badges (existing)
 
 **Right Section**:
+
 - Row count display (existing)
 - **NEW**: Column Filters toggle button
 - **NEW**: Columns dropdown menu
@@ -154,7 +163,7 @@ The toolbar now has the following structure:
 
 All new UI elements support keyboard navigation:
 
-- **Columns Dropdown**: 
+- **Columns Dropdown**:
   - Tab to focus button
   - Enter/Space to open
   - Arrow keys to navigate menu items
@@ -203,6 +212,7 @@ Column visibility state is persisted using:
 ## Integration with Existing Features
 
 ### Works With:
+
 - ✅ Global text filter
 - ✅ Change type badges (All/Added/Removed/Modified)
 - ✅ Column sorting (click headers)
@@ -212,6 +222,7 @@ Column visibility state is persisted using:
 - ✅ Show/Hide unchanged rows option
 
 ### Does Not Conflict With:
+
 - CSV input/upload
 - Comparison mode selection
 - Configuration options
@@ -227,14 +238,14 @@ Column visibility state is persisted using:
 
 ## Comparison with Requirements
 
-| Requirement | Status | Implementation |
-|------------|--------|----------------|
-| Column Filtering | ✅ Complete | Per-column filter inputs with text matching |
-| Column Sorting | ✅ Already existed | Click column headers to sort |
-| Column Hiding | ✅ Complete | Dropdown menu with checkboxes |
-| Session Persistence | ✅ Complete | localStorage for column visibility |
-| Intuitive UI/UX | ✅ Complete | Clear buttons, consistent styling |
-| Documentation | ✅ Complete | This guide + ADVANCED_TABLE_FEATURES.md |
+| Requirement         | Status             | Implementation                              |
+| ------------------- | ------------------ | ------------------------------------------- |
+| Column Filtering    | ✅ Complete        | Per-column filter inputs with text matching |
+| Column Sorting      | ✅ Already existed | Click column headers to sort                |
+| Column Hiding       | ✅ Complete        | Dropdown menu with checkboxes               |
+| Session Persistence | ✅ Complete        | localStorage for column visibility          |
+| Intuitive UI/UX     | ✅ Complete        | Clear buttons, consistent styling           |
+| Documentation       | ✅ Complete        | This guide + ADVANCED_TABLE_FEATURES.md     |
 
 ## Screenshot Reference
 

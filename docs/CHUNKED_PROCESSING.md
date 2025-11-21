@@ -15,6 +15,7 @@ The CSV Diff Viewer now supports chunked processing for large datasets (1 millio
 ## When to Use Chunked Mode
 
 Use chunked processing when:
+
 - Dataset has 100,000+ rows
 - Browser memory is limited
 - You experience crashes or slow performance with standard mode
@@ -36,6 +37,7 @@ Use chunked processing when:
 ### Rust WASM Module
 
 New functions in `src-wasm/src/core.rs`:
+
 - `diff_csv_primary_key_chunked`: Processes target rows in chunks for primary-key mode
 - `diff_csv_chunked`: Processes source rows in chunks for content-match mode
 - Both return partial results per chunk
@@ -44,6 +46,7 @@ New functions in `src-wasm/src/core.rs`:
 ### Web Worker
 
 Enhanced `csv.worker.ts` with:
+
 - `compare-chunked` message type
 - Chunk coordination
 - Progress callbacks
@@ -51,6 +54,7 @@ Enhanced `csv.worker.ts` with:
 ### IndexedDB Storage
 
 `src/lib/indexeddb.ts` provides:
+
 - Chunk storage and retrieval
 - Metadata management
 - Storage size monitoring
@@ -59,8 +63,10 @@ Enhanced `csv.worker.ts` with:
 ### React Hooks
 
 **useChunkedDiff**: Orchestrates the chunked diff process
+
 ```typescript
-const { startChunkedDiff, loadDiffResults, clearDiff, getStorageInfo } = useChunkedDiff()
+const { startChunkedDiff, loadDiffResults, clearDiff, getStorageInfo } =
+  useChunkedDiff()
 
 // Start chunked comparison
 const diffId = await startChunkedDiff(
@@ -69,7 +75,7 @@ const diffId = await startChunkedDiff(
   sourceHeaders,
   targetHeaders,
   options,
-  onProgress
+  onProgress,
 )
 
 // Load results from IndexedDB
@@ -101,6 +107,7 @@ Display results
 ### IndexedDB Stores
 
 **diff-results**: Stores individual chunks
+
 ```typescript
 {
   id: "diff-123-chunk-0",
@@ -117,6 +124,7 @@ Display results
 ```
 
 **metadata**: Stores diff session metadata
+
 ```typescript
 {
   id: "diff-123",
@@ -134,11 +142,13 @@ Display results
 ## Performance Considerations
 
 ### Memory Usage
+
 - Chunked mode keeps only one chunk in memory at a time
 - IndexedDB can store GBs of data (browser-dependent)
 - Typical usage: ~1-5 MB per 10,000 rows
 
 ### Processing Speed
+
 - Chunk size affects speed:
   - 5,000 rows: ~50ms per chunk (WASM processing)
   - 10,000 rows: ~100ms per chunk
@@ -156,19 +166,25 @@ Display results
 ## Troubleshooting
 
 ### Out of Storage
+
 If you run out of storage:
+
 1. Use the Storage Monitor to check usage
 2. Clear old diffs using "Clear All Stored Diffs" button
 3. Reduce chunk size to process less data at once
 
 ### Slow Processing
+
 If processing is slow:
+
 1. Increase chunk size (up to 100,000)
 2. Close other browser tabs to free memory
 3. Check if browser is throttling IndexedDB operations
 
 ### Browser Crashes
+
 If browser still crashes:
+
 1. Decrease chunk size to 5,000 or less
 2. Close all other applications
 3. Try a different browser (Chrome/Edge typically have best WASM performance)
@@ -204,7 +220,7 @@ const {
   clearDiff,
   getStorageInfo,
   isProcessing,
-  diffId
+  diffId,
 } = useChunkedDiff()
 ```
 
@@ -231,6 +247,7 @@ const available = await indexedDBManager.getAvailableStorage()
 ## Future Enhancements
 
 Potential improvements:
+
 - Streaming results display (show chunks as they complete)
 - Diff result caching across sessions
 - Export chunks to files for external processing

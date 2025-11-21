@@ -10,25 +10,25 @@ jobs:
   typescript-tests:
     name: TypeScript/JavaScript Tests
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Run tests
         run: npm test
-      
+
       - name: Run tests with coverage
         run: npm test -- --coverage
-      
+
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
         if: always()
@@ -40,13 +40,13 @@ jobs:
   rust-tests:
     name: Rust/WASM Tests
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Cache Cargo
         uses: actions/cache@v4
         with:
@@ -57,15 +57,15 @@ jobs:
             ~/.cargo/git/db/
             src-wasm/target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      
+
       - name: Run Rust tests
         working-directory: src-wasm
         run: cargo test --verbose
-      
+
       - name: Run benchmark tests
         working-directory: src-wasm
         run: cargo test --release -- --ignored --nocapture | tee benchmark-results.txt
-      
+
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:
@@ -75,24 +75,24 @@ jobs:
   wasm-build-size:
     name: WASM Binary Size Check
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch all history for comparison
-      
+          fetch-depth: 0 # Fetch all history for comparison
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      
+
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      
+
       - name: Build WASM
         working-directory: src-wasm
         run: wasm-pack build --target web --release
-      
+
       - name: Check WASM size
         id: wasm-size
         run: |
@@ -104,7 +104,7 @@ jobs:
           echo "size_kb=$SIZE_KB" >> $GITHUB_OUTPUT
           echo "size_mb=$SIZE_MB" >> $GITHUB_OUTPUT
           echo "WASM binary size: $SIZE_KB KB ($SIZE_MB MB)"
-      
+
       - name: Comment PR with size
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
@@ -118,14 +118,14 @@ jobs:
                         `- Removing unused dependencies\n` +
                         `- Enabling LTO and other optimizations\n` +
                         `- Using wasm-opt for further size reduction`;
-            
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: body
             });
-      
+
       - name: Upload WASM artifact
         uses: actions/upload-artifact@v4
         with:
@@ -136,25 +136,25 @@ jobs:
     name: Performance Regression Check
     runs-on: ubuntu-latest
     needs: [typescript-tests, rust-tests]
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Run performance benchmarks
         working-directory: src-wasm
         run: |
           echo "=== Performance Benchmarks ===" > perf-results.txt
           cargo test --release benchmark_summary -- --ignored --nocapture | tee -a perf-results.txt
-      
+
       - name: Upload performance results
         uses: actions/upload-artifact@v4
         with:
           name: performance-results
           path: src-wasm/perf-results.txt
-      
+
       - name: Comment PR with results
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
@@ -163,7 +163,7 @@ jobs:
             const fs = require('fs');
             const perfResults = fs.readFileSync('src-wasm/perf-results.txt', 'utf8');
             const body = `## Performance Benchmark Results\n\n\`\`\`\n${perfResults}\n\`\`\``;
-            
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
@@ -176,7 +176,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [typescript-tests, rust-tests, wasm-build-size]
     if: always()
-    
+
     steps:
       - name: Summary
         run: |

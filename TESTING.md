@@ -3,6 +3,7 @@
 This document provides comprehensive guidance on testing the CSV Diff Viewer project.
 
 ## Table of Contents
+
 - [Quick Start](#quick-start)
 - [Test Suites](#test-suites)
 - [Running Tests](#running-tests)
@@ -33,6 +34,7 @@ cd src-wasm && cargo test --release -- --ignored --nocapture
 Located in `src/__tests__/`:
 
 #### Unit Tests (`unit/`)
+
 - **Large Datasets** (`large-datasets.test.ts`)
   - CSV generation for 10k, 50k, 100k rows
   - Unicode and special character handling
@@ -40,6 +42,7 @@ Located in `src/__tests__/`:
   - Memory usage tracking
 
 #### Integration Tests (`integration/`)
+
 - **Worker-WASM Integration** (`worker-wasm.test.ts`)
   - Web Worker message handling
   - WASM module integration
@@ -53,6 +56,7 @@ Located in `src/__tests__/`:
   - Dataset reconstruction
 
 #### Performance Tests (`performance/`)
+
 - **Diff Performance** (`diff-performance.test.ts`)
   - Data generation benchmarks
   - Memory efficiency tests
@@ -64,6 +68,7 @@ Located in `src/__tests__/`:
 Located in `src-wasm/src/lib.rs`:
 
 #### Functional Tests (36 tests)
+
 - Basic CSV diff operations
 - Header edge cases
 - Primary key validation
@@ -76,6 +81,7 @@ Located in `src-wasm/src/lib.rs`:
 - Chunked processing
 
 #### Performance Benchmarks (6 tests)
+
 - 10k rows (primary key & content match)
 - 100k rows (primary key)
 - 1M rows (primary key)
@@ -142,12 +148,12 @@ cargo test --release benchmark_summary -- --ignored --nocapture
 
 On a typical development machine:
 
-| Dataset | Primary Key | Content Match | Memory |
-|---------|-------------|---------------|--------|
-| 10k rows | 50-100ms | 80-120ms | 0.5 MB |
-| 50k rows | 300-450ms | 500-700ms | 2.8 MB |
-| 100k rows | 600-900ms | 1-1.5s | 5.7 MB |
-| 1M rows | 8-12s | N/A | 57 MB |
+| Dataset   | Primary Key | Content Match | Memory |
+| --------- | ----------- | ------------- | ------ |
+| 10k rows  | 50-100ms    | 80-120ms      | 0.5 MB |
+| 50k rows  | 300-450ms   | 500-700ms     | 2.8 MB |
+| 100k rows | 600-900ms   | 1-1.5s        | 5.7 MB |
+| 1M rows   | 8-12s       | N/A           | 57 MB  |
 
 **Note:** Results vary based on hardware and system load.
 
@@ -177,10 +183,10 @@ describe('Feature Name', () => {
     it('should do something specific', () => {
       // Arrange
       const input = 'test data'
-      
+
       // Act
       const result = processInput(input)
-      
+
       // Assert
       expect(result).toBe('expected output')
     })
@@ -199,10 +205,10 @@ mod tests {
     fn test_feature() {
         // Arrange
         let input = "test data";
-        
+
         // Act
         let result = process_input(input);
-        
+
         // Assert
         assert_eq!(result.is_ok(), true);
     }
@@ -238,10 +244,12 @@ const csv = generateLargeCsv({
 ### GitHub Actions Workflow
 
 Tests run automatically on:
+
 - Push to `main` or `develop`
 - Pull requests to `main` or `develop`
 
 Workflow jobs:
+
 1. **TypeScript Tests** - Runs vitest with coverage
 2. **Rust Tests** - Runs cargo test
 3. **WASM Build Size** - Tracks binary size
@@ -266,6 +274,7 @@ cd src-wasm && cargo test --release benchmark_summary -- --ignored --nocapture
 ## Test Coverage Goals
 
 ### Current Coverage
+
 - **Rust Core Logic**: 85-90%
 - **TypeScript Integration**: 60-70%
 - **End-to-End Flows**: 70%
@@ -304,6 +313,7 @@ open tarpaulin-report.html
 ### Benchmark Variability
 
 Performance benchmarks can vary ±20% based on:
+
 - System load
 - CPU thermal throttling
 - Background processes

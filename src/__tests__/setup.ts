@@ -1,4 +1,4 @@
-import { expect, afterEach } from 'vitest'
+import { afterEach, expect } from 'vitest'
 import { cleanup } from '@testing-library/react'
 
 // Cleanup after each test case
@@ -27,7 +27,6 @@ class MockWorker {
 // Set up global Worker mock for JSDOM environment
 // JSDOM doesn't provide Worker by default
 declare global {
-  // eslint-disable-next-line no-var
   var Worker: typeof MockWorker
 }
 

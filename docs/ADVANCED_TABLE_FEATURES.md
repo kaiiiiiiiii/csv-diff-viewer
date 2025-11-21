@@ -5,6 +5,7 @@ This document describes the advanced table features added to the CSV Diff Viewer
 ## Overview
 
 The DiffTable component now includes three major advanced features:
+
 1. **Column Visibility Toggle** - Hide or show specific columns
 2. **Per-Column Filtering** - Filter individual columns independently
 3. **Session Persistence** - Column visibility preferences persist across sessions
@@ -20,6 +21,7 @@ Users can now hide or show any column in the diff table through a dropdown menu.
 **UI Location**: Top-right toolbar, "Columns" button with a column icon
 
 **Behavior**:
+
 - Click the "Columns" button to open a dropdown menu
 - Each column has a checkbox that can be toggled on/off
 - Hidden columns are immediately removed from the table view
@@ -29,6 +31,7 @@ Users can now hide or show any column in the diff table through a dropdown menu.
 **Storage Key**: `csv-diff-viewer-column-visibility`
 
 **Implementation Details**:
+
 ```typescript
 // State management
 const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
@@ -57,6 +60,7 @@ Users can filter each column individually using text-based filters.
 **UI Location**: Below the table header row when "Column Filters" is toggled on
 
 **Behavior**:
+
 - Click the "Column Filters" button to show/hide the filter row
 - Each visible column gets its own filter input
 - Type text to filter rows based on that column's values
@@ -66,10 +70,12 @@ Users can filter each column individually using text-based filters.
 - Filters work in combination with the global search filter
 
 **Filter Types**:
+
 - **Text columns**: Uses `includesString` filter function (case-insensitive substring match)
 - **Type column**: Uses `equalsString` filter function (exact match)
 
 **Implementation Details**:
+
 ```typescript
 // State management
 const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
@@ -99,6 +105,7 @@ const table = useReactTable({
 Column visibility preferences are automatically saved to localStorage and restored when the page reloads.
 
 **Implementation**:
+
 ```typescript
 const STORAGE_KEY = 'csv-diff-viewer-column-visibility'
 
@@ -129,17 +136,20 @@ useEffect(() => {
 These features were already present and work seamlessly with the new additions:
 
 ### Sorting
+
 - Click any column header to sort by that column
 - Click again to reverse the sort order
 - Sort indicator shows current sort direction
 - Works with filtered data
 
 ### Global Filter
+
 - Text input at the top-left filters across all columns
 - Searches all visible cells for the entered text
 - Works in combination with per-column filters
 
 ### Type Filtering
+
 - Badge buttons filter by change type: All, Added, Removed, Modified
 - Shows count of rows for each type
 - Disabled if no rows of that type exist
@@ -160,6 +170,7 @@ These features were already present and work seamlessly with the new additions:
 ### New Dependencies
 
 Added to `package.json`:
+
 - `@radix-ui/react-dropdown-menu` - Dropdown menu primitive
 - `@radix-ui/react-checkbox` - Checkbox primitive
 
@@ -182,6 +193,7 @@ Added to `package.json`:
 ### Combining Features
 
 Users can combine all filtering and visibility features:
+
 1. Hide irrelevant columns using the "Columns" dropdown
 2. Filter by change type using the badge buttons (Added/Removed/Modified)
 3. Use the global filter for quick cross-column searches
@@ -193,6 +205,7 @@ Users can combine all filtering and visibility features:
 ### TanStack Table v8 Integration
 
 All features use TanStack Table v8's built-in APIs:
+
 - `columnVisibility` state for hiding/showing columns
 - `columnFilters` state for per-column filtering
 - `getFilteredRowModel()` for applying filters
@@ -217,6 +230,7 @@ All features use TanStack Table v8's built-in APIs:
 ## Future Enhancements
 
 Potential improvements for future iterations:
+
 - Column reordering (drag-and-drop)
 - Column resizing
 - Filter presets (save/load filter combinations)

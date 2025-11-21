@@ -26,7 +26,7 @@ function formatBytes(bytes: number): string {
   const k = 1024
   const sizes = ['Bytes', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i]
 }
 
 export function StorageMonitor() {
@@ -68,9 +68,8 @@ export function StorageMonitor() {
     return null
   }
 
-  const usagePercent = storageInfo.total > 0 
-    ? (storageInfo.used / storageInfo.total) * 100 
-    : 0
+  const usagePercent =
+    storageInfo.total > 0 ? (storageInfo.used / storageInfo.total) * 100 : 0
 
   return (
     <Card className="bg-muted/50">
@@ -88,7 +87,9 @@ export function StorageMonitor() {
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Available:</span>
-            <span className="font-medium">{formatBytes(storageInfo.available)}</span>
+            <span className="font-medium">
+              {formatBytes(storageInfo.available)}
+            </span>
           </div>
           <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
             <div
@@ -100,12 +101,12 @@ export function StorageMonitor() {
             {usagePercent.toFixed(1)}% used
           </p>
         </div>
-        
+
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <Button 
-              variant="outline" 
-              size="sm" 
+            <Button
+              variant="outline"
+              size="sm"
               className="w-full"
               disabled={loading || storageInfo.used === 0}
             >
@@ -117,8 +118,8 @@ export function StorageMonitor() {
             <AlertDialogHeader>
               <AlertDialogTitle>Clear All Stored Diffs?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will permanently delete all diff results stored in IndexedDB.
-                This action cannot be undone.
+                This will permanently delete all diff results stored in
+                IndexedDB. This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

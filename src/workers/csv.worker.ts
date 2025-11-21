@@ -1,8 +1,8 @@
 import init, {
+  CsvDiffer,
   diff_csv,
   diff_csv_primary_key,
   parse_csv,
-  CsvDiffer,
 } from '../../src-wasm/pkg/csv_diff_wasm'
 
 const ctx: Worker = self as any

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DiffChunk, DiffMetadata } from '../../lib/indexeddb'
 
 describe('IndexedDB Integration', () => {
@@ -24,7 +24,7 @@ describe('IndexedDB Integration', () => {
     })
 
     it('should support multiple chunks for large datasets', () => {
-      const chunks: DiffChunk[] = []
+      const chunks: Array<DiffChunk> = []
       const diffId = 'large-diff-123'
 
       for (let i = 0; i < 10; i++) {
@@ -122,26 +122,41 @@ describe('IndexedDB Integration', () => {
     })
 
     it('should simulate retrieving chunks by diffId', () => {
-      const chunks: DiffChunk[] = [
+      const chunks: Array<DiffChunk> = [
         {
           id: 'chunk-0',
           chunkIndex: 0,
           diffId: 'diff-123',
-          data: { added: [{ ID: '1' }], removed: [], modified: [], unchanged: [] },
+          data: {
+            added: [{ ID: '1' }],
+            removed: [],
+            modified: [],
+            unchanged: [],
+          },
           timestamp: Date.now(),
         },
         {
           id: 'chunk-1',
           chunkIndex: 1,
           diffId: 'diff-123',
-          data: { added: [{ ID: '2' }], removed: [], modified: [], unchanged: [] },
+          data: {
+            added: [{ ID: '2' }],
+            removed: [],
+            modified: [],
+            unchanged: [],
+          },
           timestamp: Date.now(),
         },
         {
           id: 'chunk-0',
           chunkIndex: 0,
           diffId: 'diff-456',
-          data: { added: [{ ID: '3' }], removed: [], modified: [], unchanged: [] },
+          data: {
+            added: [{ ID: '3' }],
+            removed: [],
+            modified: [],
+            unchanged: [],
+          },
           timestamp: Date.now(),
         },
       ]
@@ -200,7 +215,7 @@ describe('IndexedDB Integration', () => {
     })
 
     it('should estimate storage size', () => {
-      const chunks: DiffChunk[] = Array(100)
+      const chunks: Array<DiffChunk> = Array(100)
         .fill(null)
         .map((_, i) => ({
           id: `chunk-${i}`,
@@ -220,7 +235,9 @@ describe('IndexedDB Integration', () => {
       const estimatedMB = estimatedSize / (1024 * 1024)
 
       expect(estimatedMB).toBeGreaterThan(0)
-      console.log(`Estimated storage: ${estimatedMB.toFixed(2)} MB for 100k rows`)
+      console.log(
+        `Estimated storage: ${estimatedMB.toFixed(2)} MB for 100k rows`,
+      )
     })
   })
 
@@ -245,7 +262,7 @@ describe('IndexedDB Integration', () => {
     it('should handle 100k rows in multiple chunks', () => {
       const chunkSize = 10000
       const totalRows = 100000
-      const chunks: DiffChunk[] = []
+      const chunks: Array<DiffChunk> = []
 
       for (let i = 0; i < totalRows / chunkSize; i++) {
         chunks.push({
@@ -267,19 +284,29 @@ describe('IndexedDB Integration', () => {
     })
 
     it('should reconstruct full dataset from chunks', () => {
-      const chunks: DiffChunk[] = [
+      const chunks: Array<DiffChunk> = [
         {
           id: 'chunk-0',
           chunkIndex: 0,
           diffId: 'diff',
-          data: { added: [{ ID: '1' }, { ID: '2' }], removed: [], modified: [], unchanged: [] },
+          data: {
+            added: [{ ID: '1' }, { ID: '2' }],
+            removed: [],
+            modified: [],
+            unchanged: [],
+          },
           timestamp: Date.now(),
         },
         {
           id: 'chunk-1',
           chunkIndex: 1,
           diffId: 'diff',
-          data: { added: [{ ID: '3' }, { ID: '4' }], removed: [], modified: [], unchanged: [] },
+          data: {
+            added: [{ ID: '3' }, { ID: '4' }],
+            removed: [],
+            modified: [],
+            unchanged: [],
+          },
           timestamp: Date.now(),
         },
       ]
@@ -314,7 +341,7 @@ describe('IndexedDB Integration', () => {
 
     it('should handle quota exceeded scenario', () => {
       const maxStorage = 100 * 1024 * 1024 // 100 MB
-      let currentUsage = 95 * 1024 * 1024 // 95 MB used
+      const currentUsage = 95 * 1024 * 1024 // 95 MB used
 
       const canStore = (dataSize: number) => {
         return currentUsage + dataSize <= maxStorage

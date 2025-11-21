@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  generateLargeCsv,
-  generateCsvPairWithDifferences,
   bytesToMB,
   estimateCsvMemorySize,
+  generateCsvPairWithDifferences,
+  generateLargeCsv,
 } from '../utils/test-data-generator'
 
 describe('CSV Diff Performance Tests', () => {
@@ -29,7 +29,11 @@ describe('CSV Diff Performance Tests', () => {
     })
 
     it('should track memory usage for different dataset sizes', () => {
-      const results: Array<{ rows: number; sizeMB: number; generationTimeMs: number }> = []
+      const results: Array<{
+        rows: number
+        sizeMB: number
+        generationTimeMs: number
+      }> = []
 
       const sizes = [1000, 10000, 50000]
 
@@ -41,7 +45,9 @@ describe('CSV Diff Performance Tests', () => {
         const sizeMB = bytesToMB(estimateCsvMemorySize(csv))
         results.push({ rows, sizeMB, generationTimeMs })
 
-        console.log(`${rows.toLocaleString()} rows: ${sizeMB.toFixed(2)} MB, ${generationTimeMs.toFixed(2)}ms`)
+        console.log(
+          `${rows.toLocaleString()} rows: ${sizeMB.toFixed(2)} MB, ${generationTimeMs.toFixed(2)}ms`,
+        )
       }
 
       // Verify memory increases with row count
@@ -99,7 +105,9 @@ describe('CSV Diff Performance Tests', () => {
       const bytesPerRow = sizePerRow
 
       console.log(`Memory per row: ${bytesPerRow.toFixed(2)} bytes`)
-      console.log(`Total memory for ${rows} rows: ${bytesToMB(totalSize).toFixed(2)} MB`)
+      console.log(
+        `Total memory for ${rows} rows: ${bytesToMB(totalSize).toFixed(2)} MB`,
+      )
 
       // Expect reasonable memory usage (less than 1KB per row for 5 columns)
       expect(bytesPerRow).toBeLessThan(1024)
@@ -137,7 +145,9 @@ describe('CSV Diff Performance Tests', () => {
         const estimatedBytes = scenario.rows * scenario.columns * 50
         const estimatedMB = estimatedBytes / (1024 * 1024)
 
-        console.log(`${scenario.description}: ~${estimatedMB.toFixed(2)} MB estimated`)
+        console.log(
+          `${scenario.description}: ~${estimatedMB.toFixed(2)} MB estimated`,
+        )
         expect(estimatedMB).toBeGreaterThan(0)
       }
     })
@@ -167,11 +177,19 @@ describe('CSV Diff Performance Tests', () => {
       const scaledRows = 10000
 
       const start1 = performance.now()
-      const csv1 = generateLargeCsv({ rows: baselineRows, columns: 5, seed: 12345 })
+      const csv1 = generateLargeCsv({
+        rows: baselineRows,
+        columns: 5,
+        seed: 12345,
+      })
       const duration1 = performance.now() - start1
 
       const start2 = performance.now()
-      const csv2 = generateLargeCsv({ rows: scaledRows, columns: 5, seed: 12345 })
+      const csv2 = generateLargeCsv({
+        rows: scaledRows,
+        columns: 5,
+        seed: 12345,
+      })
       const duration2 = performance.now() - start2
 
       const scalingFactor = scaledRows / baselineRows

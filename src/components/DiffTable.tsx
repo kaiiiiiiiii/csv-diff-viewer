@@ -84,7 +84,10 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
         setColumnVisibility(parsed)
       }
     } catch (error) {
-      console.error('Failed to load column visibility from localStorage:', error)
+      console.error(
+        'Failed to load column visibility from localStorage:',
+        error,
+      )
     }
   }, [])
 
@@ -396,7 +399,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
             <span className="text-sm text-muted-foreground mr-2">
               {filteredRows.length} rows found
             </span>
-            
+
             {/* Column Filters Toggle */}
             <Button
               variant="outline"
@@ -521,7 +524,9 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
                               <Input
                                 placeholder={`Filter...`}
                                 value={
-                                  (column.getFilterValue() as string | undefined) ?? ''
+                                  (column.getFilterValue() as
+                                    | string
+                                    | undefined) ?? ''
                                 }
                                 onChange={(e) =>
                                   column.setFilterValue(e.target.value)
@@ -533,7 +538,9 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
                                   variant="ghost"
                                   size="icon"
                                   className="h-8 w-8 shrink-0"
-                                  onClick={() => column.setFilterValue(undefined)}
+                                  onClick={() =>
+                                    column.setFilterValue(undefined)
+                                  }
                                 >
                                   <X className="h-3 w-3" />
                                 </Button>

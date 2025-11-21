@@ -12,49 +12,102 @@ export interface CsvGeneratorOptions {
  * Generate a large CSV dataset for testing
  */
 export function generateLargeCsv(options: CsvGeneratorOptions): string {
-  const { rows, columns, includeUnicode = false, includeSpecialChars = false, seed } = options
+  const {
+    rows,
+    columns,
+    includeUnicode = false,
+    includeSpecialChars = false,
+    seed,
+  } = options
 
   if (seed !== undefined) {
     faker.seed(seed)
   }
 
-  const headers: string[] = []
+  const headers: Array<string> = []
   for (let i = 0; i < columns; i++) {
     headers.push(`Column${i + 1}`)
   }
 
   const lines = [headers.join(',')]
 
+  // Fast path for very large CSVs: avoid using faker for high-volume generation
+  // because faker can be slow when called repeatedly. For large datasets we
+  // use lightweight deterministic values which still allow us to validate
+  // structure and memory properties in tests without the heavy RNG overhead.
+  const useFastPath = rows >= 50000
+
   for (let row = 0; row < rows; row++) {
-    const rowData: string[] = []
+    const rowData: Array<string> = []
     for (let col = 0; col < columns; col++) {
       let value = ''
-      
+
       if (col === 0) {
         // First column is always an ID
         value = `ID${row + 1}`
       } else if (includeUnicode && col % 5 === 0) {
         // Add unicode characters every 5th column
-        value = faker.helpers.arrayElement([
-          'Hello世界', '你好', 'Привет', '🎉🎊', 'Café', 'naïve'
-        ])
+        if (useFastPath) {
+          const unicodeValues = [
+            'Hello世界',
+            '你好',
+            'Привет',
+            '🎉🎊',
+            'Café',
+            'naïve',
+          ]
+          value = unicodeValues[(row + col) % unicodeValues.length]
+        } else {
+          value = faker.helpers.arrayElement([
+            'Hello世界',
+            '你好',
+            'Привет',
+            '🎉🎊',
+            'Café',
+            'naïve',
+          ])
+        }
       } else if (includeSpecialChars && col % 3 === 0) {
         // Add special characters every 3rd column
-        value = faker.helpers.arrayElement([
-          'value,with,commas',
-          'value"with"quotes',
-          'value\nwith\nnewlines',
-          'value\twith\ttabs',
-        ])
+        if (useFastPath) {
+          const specialValues = [
+            'value,with,commas',
+            'value"with"quotes',
+            'value\nwith\nnewlines',
+            'value\twith\ttabs',
+          ]
+          value = specialValues[(row + col) % specialValues.length]
+        } else {
+          value = faker.helpers.arrayElement([
+            'value,with,commas',
+            'value"with"quotes',
+            'value\nwith\nnewlines',
+            'value\twith\ttabs',
+          ])
+        }
       } else {
         // Regular data
-        value = faker.helpers.arrayElement([
-          faker.person.fullName(),
-          faker.internet.email(),
-          faker.number.int({ min: 1, max: 1000 }).toString(),
-          faker.lorem.word(),
-          faker.datatype.boolean().toString(),
-        ])
+        if (useFastPath) {
+          // Lightweight deterministic content for speed
+          switch (col % 3) {
+            case 0:
+              value = `Name${row}-${col}`
+              break
+            case 1:
+              value = `user${row}@example.com`
+              break
+            default:
+              value = `${(row % 1000) + 1}`
+          }
+        } else {
+          value = faker.helpers.arrayElement([
+            faker.person.fullName(),
+            faker.internet.email(),
+            faker.number.int({ min: 1, max: 1000 }).toString(),
+            faker.lorem.word(),
+            faker.datatype.boolean().toString(),
+          ])
+        }
       }
 
       // Escape commas and quotes for CSV format
@@ -80,9 +133,15 @@ export function generateCsvWithCharacteristics(config: {
   emptyFields?: boolean
   nullFields?: boolean
 }): string {
-  const { rows, singleColumn = false, unicodeOnly = false, emptyFields = false, nullFields = false } = config
+  const {
+    rows,
+    singleColumn = false,
+    unicodeOnly = false,
+    emptyFields = false,
+    nullFields = false,
+  } = config
 
-  const columns = singleColumn ? 1 : 3
+  const _columns = singleColumn ? 1 : 3
   const headers = singleColumn ? ['Value'] : ['ID', 'Name', 'Data']
   const lines = [headers.join(',')]
 
@@ -126,7 +185,7 @@ export function generateCsvPairWithDifferences(config: {
 
   // Generate target CSV based on source with modifications
   const targetLines = ['ID,Name,Value']
-  
+
   // Add unchanged rows (excluding rows to be removed and modified)
   const unchangedCount = baseRows - removedRows - modifiedRows
   for (let i = 0; i < unchangedCount; i++) {

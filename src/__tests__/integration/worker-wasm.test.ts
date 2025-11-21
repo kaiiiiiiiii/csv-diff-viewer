@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DiffResult } from '../../lib/comparison-engine'
 
 describe('Web Worker and WASM Integration', () => {

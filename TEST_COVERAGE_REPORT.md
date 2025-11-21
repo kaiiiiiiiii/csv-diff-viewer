@@ -15,20 +15,20 @@ This document provides a comprehensive summary of test coverage for the csv-diff
 
 #### Test Categories
 
-| Category | Tests | Status | Coverage |
-|----------|-------|--------|----------|
-| Basic Operations | 3 | ✅ | 100% |
-| Header Edge Cases | 5 | ✅ | 100% |
-| Primary Key Validation | 5 | ✅ | 100% |
-| Content Match Mode | 3 | ✅ | 100% |
-| Normalization Options | 5 | ✅ | 100% |
-| Malformed CSV | 3 | ✅ | 100% |
-| Progress Callbacks | 1 | ✅ | 100% |
-| CSV Parsing | 4 | ✅ | 100% |
-| Text Diff | 3 | ✅ | 100% |
-| Chunked Processing | 3 | ✅ | 100% |
-| Data-driven Tests | 1 | ✅ | 100% |
-| Performance Benchmarks | 6 | ✅ | - |
+| Category               | Tests | Status | Coverage |
+| ---------------------- | ----- | ------ | -------- |
+| Basic Operations       | 3     | ✅     | 100%     |
+| Header Edge Cases      | 5     | ✅     | 100%     |
+| Primary Key Validation | 5     | ✅     | 100%     |
+| Content Match Mode     | 3     | ✅     | 100%     |
+| Normalization Options  | 5     | ✅     | 100%     |
+| Malformed CSV          | 3     | ✅     | 100%     |
+| Progress Callbacks     | 1     | ✅     | 100%     |
+| CSV Parsing            | 4     | ✅     | 100%     |
+| Text Diff              | 3     | ✅     | 100%     |
+| Chunked Processing     | 3     | ✅     | 100%     |
+| Data-driven Tests      | 1     | ✅     | 100%     |
+| Performance Benchmarks | 6     | ✅     | -        |
 
 **Estimated Core Coverage:** 85-90%
 
@@ -40,12 +40,12 @@ This document provides a comprehensive summary of test coverage for the csv-diff
 
 #### Test Suites
 
-| Suite | Tests | Purpose |
-|-------|-------|---------|
-| Large Datasets | 17 | Test handling of 10k-100k row datasets |
-| Worker-WASM Integration | 21 | Test Web Worker and WASM integration |
-| IndexedDB Integration | 12 | Test chunked storage and retrieval |
-| Performance Tests | 15 | Measure generation and processing times |
+| Suite                   | Tests | Purpose                                 |
+| ----------------------- | ----- | --------------------------------------- |
+| Large Datasets          | 17    | Test handling of 10k-100k row datasets  |
+| Worker-WASM Integration | 21    | Test Web Worker and WASM integration    |
+| IndexedDB Integration   | 12    | Test chunked storage and retrieval      |
+| Performance Tests       | 15    | Measure generation and processing times |
 
 ## Test Execution
 
@@ -82,6 +82,7 @@ cd src-wasm && cargo tarpaulin --out Html
 ### Test Scenarios
 
 #### Size Coverage
+
 - ✅ 100 rows (baseline)
 - ✅ 1,000 rows (small)
 - ✅ 10,000 rows (medium)
@@ -89,6 +90,7 @@ cd src-wasm && cargo tarpaulin --out Html
 - ✅ 100,000 rows (very large)
 
 #### Character Handling
+
 - ✅ Unicode characters (Chinese, Russian, emojis)
 - ✅ Special characters (commas, quotes, newlines, tabs)
 - ✅ Mixed unicode and special characters
@@ -96,6 +98,7 @@ cd src-wasm && cargo tarpaulin --out Html
 - ✅ Null values
 
 #### Boundary Conditions
+
 - ✅ Single row CSV
 - ✅ Single column CSV
 - ✅ Single row, single column CSV
@@ -109,24 +112,26 @@ cd src-wasm && cargo tarpaulin --out Html
 Tested on: Default GitHub Actions runner
 
 | Dataset Size | Primary Key Mode | Content Match Mode | Memory (MB) |
-|--------------|------------------|-------------------|-------------|
-| 10k rows | ~75ms | ~86ms | 0.52 |
-| 50k rows | ~358ms | ~548ms | 2.81 |
-| 100k rows | ~672ms | ~1.15s | 5.67 |
+| ------------ | ---------------- | ------------------ | ----------- |
+| 10k rows     | ~75ms            | ~86ms              | 0.52        |
+| 50k rows     | ~358ms           | ~548ms             | 2.81        |
+| 100k rows    | ~672ms           | ~1.15s             | 5.67        |
 
 #### Unicode Handling Performance
+
 - 10k rows with unicode: ~80-100ms
 - Minimal overhead compared to ASCII-only data
 
 ### TypeScript Data Generation Performance
 
 | Dataset Size | Generation Time | Memory (Estimated) |
-|--------------|----------------|-------------------|
-| 1k rows | <50ms | <0.1 MB |
-| 10k rows | <5s | ~1 MB |
-| 50k rows | <20s | ~5 MB |
+| ------------ | --------------- | ------------------ |
+| 1k rows      | <50ms           | <0.1 MB            |
+| 10k rows     | <5s             | ~1 MB              |
+| 50k rows     | <20s            | ~5 MB              |
 
 #### Scaling Characteristics
+
 - Memory scales linearly with row count
 - Generation time scales roughly linearly (1.5-2x overhead factor)
 - 50 bytes per cell average (5 columns)
@@ -134,6 +139,7 @@ Tested on: Default GitHub Actions runner
 ## Integration Test Coverage
 
 ### Web Worker Communication
+
 - ✅ Parse requests
 - ✅ Compare requests (primary key mode)
 - ✅ Compare requests (content match mode)
@@ -143,6 +149,7 @@ Tested on: Default GitHub Actions runner
 - ✅ Concurrent requests
 
 ### WASM Module Integration
+
 - ✅ Module initialization
 - ✅ Function signature validation
 - ✅ DiffResult structure validation
@@ -150,6 +157,7 @@ Tested on: Default GitHub Actions runner
 - ✅ Chunked processing
 
 ### IndexedDB Operations
+
 - ✅ Chunk storage (single and multiple)
 - ✅ Metadata storage
 - ✅ Chunk retrieval by diff ID
@@ -161,13 +169,13 @@ Tested on: Default GitHub Actions runner
 
 ### Tested Memory Patterns
 
-| Pattern | Test Coverage |
-|---------|--------------|
-| Memory growth rate | ✅ Verified linear scaling |
-| Memory per row | ✅ ~50-100 bytes average |
-| Unicode overhead | ✅ <20% increase |
-| Special char overhead | ✅ Minimal impact |
-| Chunked storage | ✅ 10k rows per chunk |
+| Pattern               | Test Coverage              |
+| --------------------- | -------------------------- |
+| Memory growth rate    | ✅ Verified linear scaling |
+| Memory per row        | ✅ ~50-100 bytes average   |
+| Unicode overhead      | ✅ <20% increase           |
+| Special char overhead | ✅ Minimal impact          |
+| Chunked storage       | ✅ 10k rows per chunk      |
 
 ### Storage Estimates
 
@@ -178,11 +186,13 @@ Tested on: Default GitHub Actions runner
 ## Test Quality Metrics
 
 ### Code Coverage Goals
+
 - **Rust Core Logic:** Target 85%+, Current: ~85%
 - **TypeScript Integration:** Target 70%+, Current: ~60%
 - **End-to-End Flows:** Target 80%+, Current: ~70%
 
 ### Test Characteristics
+
 - ✅ Deterministic (seeded random data)
 - ✅ Isolated (no shared state)
 - ✅ Fast (unit tests <5s total)
@@ -192,6 +202,7 @@ Tested on: Default GitHub Actions runner
 ## Known Limitations
 
 ### Current Test Gaps
+
 1. Browser-specific WASM execution (requires e2e framework)
 2. IndexedDB in actual browser environment
 3. Multi-threading/Web Worker in real browser
@@ -199,6 +210,7 @@ Tested on: Default GitHub Actions runner
 5. Network conditions (for future API features)
 
 ### Future Coverage Improvements
+
 1. Add Playwright/Puppeteer e2e tests
 2. Test WASM in multiple browsers
 3. Add visual regression tests for UI
@@ -212,12 +224,13 @@ Tested on: Default GitHub Actions runner
 ```yaml
 test:
   - npm install
-  - npm test                          # TypeScript tests
-  - cd src-wasm && cargo test        # Rust functional tests
+  - npm test # TypeScript tests
+  - cd src-wasm && cargo test # Rust functional tests
   - cargo test --release -- --ignored # Rust benchmarks
 ```
 
 ### Performance Regression Detection
+
 - Track WASM binary size (see `scripts/track-wasm-size.sh`)
 - Compare benchmark results against baseline
 - Alert on >10% performance degradation
@@ -226,6 +239,7 @@ test:
 ## Contributing
 
 When adding new features:
+
 1. Add unit tests covering edge cases
 2. Add integration tests for new flows
 3. Update performance benchmarks if relevant

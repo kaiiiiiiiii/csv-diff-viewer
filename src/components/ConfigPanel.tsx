@@ -139,7 +139,9 @@ export function ConfigPanel({
           <>
             <div className="flex items-center justify-between">
               <div className="space-y-1">
-                <label className="text-sm font-medium">Chunked Processing</label>
+                <label className="text-sm font-medium">
+                  Chunked Processing
+                </label>
                 <p className="text-xs text-muted-foreground">
                   For large datasets (1M+ rows). Stores results in IndexedDB.
                 </p>
@@ -158,13 +160,16 @@ export function ConfigPanel({
                 <Input
                   type="number"
                   value={chunkSize}
-                  onChange={(e) => setChunkSize(parseInt(e.target.value, 10) || 10000)}
+                  onChange={(e) =>
+                    setChunkSize(parseInt(e.target.value, 10) || 10000)
+                  }
                   min={1000}
                   max={100000}
                   step={1000}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Default: 10,000 rows. Lower for less memory, higher for faster processing.
+                  Default: 10,000 rows. Lower for less memory, higher for faster
+                  processing.
                 </p>
               </div>
             )}

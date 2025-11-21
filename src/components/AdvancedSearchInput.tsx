@@ -281,9 +281,7 @@ export function AdvancedSearchInput({
                 <div className="px-2 py-2 text-xs space-y-2">
                   <div>
                     <div className="font-semibold">Multiple terms (AND)</div>
-                    <code className="text-muted-foreground">
-                      term1 term2
-                    </code>
+                    <code className="text-muted-foreground">term1 term2</code>
                     <div className="text-muted-foreground">
                       Match rows containing all terms
                     </div>
