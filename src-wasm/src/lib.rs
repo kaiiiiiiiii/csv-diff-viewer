@@ -857,4 +857,58 @@ mod tests {
             println!();
         }
     }
+
+    // ===== STRSIM SIMILARITY TESTS =====
+
+    /// Test strsim-based similarity matching
+    #[test]
+    fn test_strsim_similarity_matching() {
+        use crate::utils::{similarity_jaro_winkler, similarity_levenshtein};
+
+        // Test Jaro-Winkler (best for short strings, names)
+        let jw_identical = similarity_jaro_winkler("Alice", "Alice");
+        assert_eq!(jw_identical, 1.0, "Identical strings should have similarity 1.0");
+
+        let jw_similar = similarity_jaro_winkler("Alice", "Alicia");
+        assert!(jw_similar > 0.8, "Similar names should have high similarity");
+
+        let jw_different = similarity_jaro_winkler("Alice", "Bob");
+        assert!(jw_different < 0.5, "Different names should have low similarity");
+
+        // Test Levenshtein (best for longer strings)
+        let lev_identical = similarity_levenshtein("New York", "New York");
+        assert_eq!(lev_identical, 1.0, "Identical strings should have similarity 1.0");
+
+        let lev_similar = similarity_levenshtein("New York", "New York City");
+        assert!(lev_similar > 0.6, "Similar cities should have reasonable similarity");
+
+        let lev_different = similarity_levenshtein("New York", "Los Angeles");
+        assert!(lev_different < 0.5, "Different cities should have low similarity");
+
+        println!("✓ Jaro-Winkler and Levenshtein similarity tests passed");
+    }
+
+    /// Demonstrate improved content matching with strsim
+    #[test]
+    fn test_strsim_improved_matching() {
+        // This test demonstrates the improved matching capability with strsim
+        let source = "name,age,location\nJohn Doe,30,New York\nJane Smith,25,Los Angeles";
+        let target = "name,age,location\nJohn D.,30,NYC\nJane S.,25,LA";
+
+        let result = core::diff_csv_internal(
+            source,
+            target,
+            true,
+            false,
+            false,
+            vec![],
+            true,
+            |_p, _m| {},
+        ).unwrap();
+
+        // With strsim, abbreviated names and locations should still match
+        // "John Doe" -> "John D." and "New York" -> "NYC" are similar enough
+        assert!(result.modified.len() >= 1, "Should find modified rows with similar but not identical values");
+        println!("✓ strsim-based content matching correctly identified {} modified rows", result.modified.len());
+    }
 }
