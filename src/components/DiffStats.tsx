@@ -1,10 +1,10 @@
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent } from "@/components/ui/card";
 
 interface DiffStatsProps {
-  added: number
-  removed: number
-  modified: number
-  unchanged: number
+  added: number;
+  removed: number;
+  modified: number;
+  unchanged: number;
 }
 
 export function DiffStats({
@@ -40,5 +40,5 @@ export function DiffStats({
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

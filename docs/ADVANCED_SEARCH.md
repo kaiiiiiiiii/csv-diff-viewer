@@ -111,10 +111,10 @@ The `parseSearchQuery()` function tokenizes the search string into structured to
 
 ```typescript
 interface SearchToken {
-  type: 'term' | 'exclude' | 'phrase' | 'column'
-  value: string
-  column?: string
-  operator?: 'AND' | 'OR'
+  type: "term" | "exclude" | "phrase" | "column";
+  value: string;
+  column?: string;
+  operator?: "AND" | "OR";
 }
 ```
 
@@ -134,14 +134,14 @@ The advanced search integrates with TanStack Table's global filter:
 
 ```typescript
 const globalFilterFn = useMemo(() => {
-  const tokens = parseSearchQuery(globalFilter)
-  return createAdvancedFilterFn(tokens)
-}, [globalFilter])
+  const tokens = parseSearchQuery(globalFilter);
+  return createAdvancedFilterFn(tokens);
+}, [globalFilter]);
 
 const table = useReactTable({
   // ... other config
   globalFilterFn,
-})
+});
 ```
 
 ## Usage Examples

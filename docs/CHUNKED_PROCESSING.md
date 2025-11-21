@@ -66,7 +66,7 @@ Enhanced `csv.worker.ts` with:
 
 ```typescript
 const { startChunkedDiff, loadDiffResults, clearDiff, getStorageInfo } =
-  useChunkedDiff()
+  useChunkedDiff();
 
 // Start chunked comparison
 const diffId = await startChunkedDiff(
@@ -76,10 +76,10 @@ const diffId = await startChunkedDiff(
   targetHeaders,
   options,
   onProgress,
-)
+);
 
 // Load results from IndexedDB
-const results = await loadDiffResults(diffId)
+const results = await loadDiffResults(diffId);
 ```
 
 ## Data Flow
@@ -195,23 +195,23 @@ If browser still crashes:
 
 ```typescript
 interface ChunkedDiffOptions {
-  comparisonMode: 'primary-key' | 'content-match'
-  keyColumns: string[]
-  caseSensitive: boolean
-  ignoreWhitespace: boolean
-  ignoreEmptyVsNull: boolean
-  excludedColumns: string[]
-  hasHeaders: boolean
-  chunkSize?: number // Default: 10000
+  comparisonMode: "primary-key" | "content-match";
+  keyColumns: string[];
+  caseSensitive: boolean;
+  ignoreWhitespace: boolean;
+  ignoreEmptyVsNull: boolean;
+  excludedColumns: string[];
+  hasHeaders: boolean;
+  chunkSize?: number; // Default: 10000
 }
 
 interface ChunkedDiffProgress {
-  currentChunk: number
-  totalChunks: number
-  percent: number
-  message: string
-  rowsProcessed: number
-  totalRows: number
+  currentChunk: number;
+  totalChunks: number;
+  percent: number;
+  message: string;
+  rowsProcessed: number;
+  totalRows: number;
 }
 
 const {
@@ -221,7 +221,7 @@ const {
   getStorageInfo,
   isProcessing,
   diffId,
-} = useChunkedDiff()
+} = useChunkedDiff();
 ```
 
 ### IndexedDB Manager

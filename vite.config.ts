@@ -1,15 +1,15 @@
-import { defineConfig } from 'vite'
-import { devtools } from '@tanstack/devtools-vite'
-import { tanstackStart } from '@tanstack/react-start/plugin/vite'
-import viteReact from '@vitejs/plugin-react'
-import viteTsConfigPaths from 'vite-tsconfig-paths'
-import tailwindcss from '@tailwindcss/vite'
-import { nitro } from 'nitro/vite'
-import wasm from 'vite-plugin-wasm'
+import { defineConfig } from "vite";
+import { devtools } from "@tanstack/devtools-vite";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import viteReact from "@vitejs/plugin-react";
+import viteTsConfigPaths from "vite-tsconfig-paths";
+import tailwindcss from "@tailwindcss/vite";
+import { nitro } from "nitro/vite";
+import wasm from "vite-plugin-wasm";
 // import topLevelAwait from 'vite-plugin-top-level-await'
 
 const config = defineConfig({
-  base: '/csv-diff-viewer/',
+  base: "/csv-diff-viewer/",
   plugins: [
     wasm(),
     // topLevelAwait(),
@@ -17,7 +17,7 @@ const config = defineConfig({
     nitro(),
     // this is the plugin that enables path aliases
     viteTsConfigPaths({
-      projects: ['./tsconfig.json'],
+      projects: ["./tsconfig.json"],
     }),
     tailwindcss(),
     tanstackStart({
@@ -28,7 +28,7 @@ const config = defineConfig({
     }),
     viteReact({
       babel: {
-        plugins: ['babel-plugin-react-compiler'],
+        plugins: ["babel-plugin-react-compiler"],
       },
     }),
   ],
@@ -36,6 +36,6 @@ const config = defineConfig({
     cssCodeSplit: true,
     modulePreload: { polyfill: false },
   },
-})
+});
 
-export default config
+export default config;

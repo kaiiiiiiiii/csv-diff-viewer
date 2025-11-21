@@ -1,34 +1,34 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Switch } from '@/components/ui/switch'
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 
 interface ConfigPanelProps {
-  mode: 'primary-key' | 'content-match'
-  setMode: (mode: 'primary-key' | 'content-match') => void
-  keyColumns: Array<string>
-  setKeyColumns: (keys: Array<string>) => void
-  excludedColumns: Array<string>
-  setExcludedColumns: (cols: Array<string>) => void
-  hasHeaders: boolean
-  setHasHeaders: (val: boolean) => void
-  ignoreWhitespace: boolean
-  setIgnoreWhitespace: (val: boolean) => void
-  caseSensitive: boolean
-  setCaseSensitive: (val: boolean) => void
-  ignoreEmptyVsNull: boolean
-  setIgnoreEmptyVsNull: (val: boolean) => void
-  availableColumns: Array<string>
-  useChunkedMode?: boolean
-  setUseChunkedMode?: (val: boolean) => void
-  chunkSize?: number
-  setChunkSize?: (val: number) => void
+  mode: "primary-key" | "content-match";
+  setMode: (mode: "primary-key" | "content-match") => void;
+  keyColumns: Array<string>;
+  setKeyColumns: (keys: Array<string>) => void;
+  excludedColumns: Array<string>;
+  setExcludedColumns: (cols: Array<string>) => void;
+  hasHeaders: boolean;
+  setHasHeaders: (val: boolean) => void;
+  ignoreWhitespace: boolean;
+  setIgnoreWhitespace: (val: boolean) => void;
+  caseSensitive: boolean;
+  setCaseSensitive: (val: boolean) => void;
+  ignoreEmptyVsNull: boolean;
+  setIgnoreEmptyVsNull: (val: boolean) => void;
+  availableColumns: Array<string>;
+  useChunkedMode?: boolean;
+  setUseChunkedMode?: (val: boolean) => void;
+  chunkSize?: number;
+  setChunkSize?: (val: number) => void;
 }
 
 export function ConfigPanel({
@@ -71,21 +71,21 @@ export function ConfigPanel({
           </Select>
         </div>
 
-        {mode === 'primary-key' && (
+        {mode === "primary-key" && (
           <div className="space-y-2">
             <label className="text-sm font-medium">
               Key Columns (comma separated)
             </label>
             <Input
-              value={keyColumns.join(', ')}
+              value={keyColumns.join(", ")}
               onChange={(e) =>
-                setKeyColumns(e.target.value.split(',').map((s) => s.trim()))
+                setKeyColumns(e.target.value.split(",").map((s) => s.trim()))
               }
               placeholder="e.g. ID, Email"
             />
             {availableColumns.length !== 0 && (
               <p className="text-xs text-muted-foreground">
-                Available: {availableColumns.join(', ')}
+                Available: {availableColumns.join(", ")}
               </p>
             )}
           </div>
@@ -96,15 +96,15 @@ export function ConfigPanel({
             Excluded Columns (comma separated)
           </label>
           <Input
-            value={excludedColumns.join(', ')}
+            value={excludedColumns.join(", ")}
             onChange={(e) =>
-              setExcludedColumns(e.target.value.split(',').map((s) => s.trim()))
+              setExcludedColumns(e.target.value.split(",").map((s) => s.trim()))
             }
             placeholder="e.g. CreatedAt, UpdatedAt"
           />
           {availableColumns.length !== 0 && (
             <p className="text-xs text-muted-foreground">
-              Available: {availableColumns.join(', ')}
+              Available: {availableColumns.join(", ")}
             </p>
           )}
         </div>
@@ -177,5 +177,5 @@ export function ConfigPanel({
         )}
       </CardContent>
     </Card>
-  )
+  );
 }

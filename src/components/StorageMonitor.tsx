@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
-import { HardDrive, Trash2 } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { indexedDBManager } from '@/lib/indexeddb'
+import { useEffect, useState } from "react";
+import { HardDrive, Trash2 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { indexedDBManager } from "@/lib/indexeddb";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,63 +13,63 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
+} from "@/components/ui/alert-dialog";
 
 interface StorageInfo {
-  used: number
-  available: number
-  total: number
+  used: number;
+  available: number;
+  total: number;
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 Bytes'
-  const k = 1024
-  const sizes = ['Bytes', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i]
+  if (bytes === 0) return "0 Bytes";
+  const k = 1024;
+  const sizes = ["Bytes", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
 }
 
 export function StorageMonitor() {
-  const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const updateStorageInfo = async () => {
     try {
-      const used = await indexedDBManager.getStorageSize()
-      const available = await indexedDBManager.getAvailableStorage()
+      const used = await indexedDBManager.getStorageSize();
+      const available = await indexedDBManager.getAvailableStorage();
       setStorageInfo({
         used,
         available,
         total: used + available,
-      })
+      });
     } catch (error) {
-      console.error('Failed to get storage info:', error)
+      console.error("Failed to get storage info:", error);
     }
-  }
+  };
 
   useEffect(() => {
-    updateStorageInfo()
-  }, [])
+    updateStorageInfo();
+  }, []);
 
   const handleClearAll = async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      await indexedDBManager.clearAllDiffs()
-      await updateStorageInfo()
+      await indexedDBManager.clearAllDiffs();
+      await updateStorageInfo();
     } catch (error) {
-      console.error('Failed to clear storage:', error)
-      alert('Failed to clear storage: ' + (error as Error).message)
+      console.error("Failed to clear storage:", error);
+      alert("Failed to clear storage: " + (error as Error).message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   if (!storageInfo) {
-    return null
+    return null;
   }
 
   const usagePercent =
-    storageInfo.total > 0 ? (storageInfo.used / storageInfo.total) * 100 : 0
+    storageInfo.total > 0 ? (storageInfo.used / storageInfo.total) * 100 : 0;
 
   return (
     <Card className="bg-muted/50">
@@ -132,5 +132,5 @@ export function StorageMonitor() {
         </AlertDialog>
       </CardContent>
     </Card>
-  )
+  );
 }

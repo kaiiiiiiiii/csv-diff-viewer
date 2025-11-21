@@ -1,23 +1,23 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useRef, useState } from 'react'
-import { FileSpreadsheet, Loader2 } from 'lucide-react'
-import { useCsvWorker } from '@/hooks/useCsvWorker'
-import { useChunkedDiff } from '@/hooks/useChunkedDiff'
-import { CsvInput } from '@/components/CsvInput'
-import { ConfigPanel } from '@/components/ConfigPanel'
-import { DiffStats } from '@/components/DiffStats'
-import { DiffTable } from '@/components/DiffTable'
-import { StorageMonitor } from '@/components/StorageMonitor'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Switch } from '@/components/ui/switch'
-import { ModeToggle } from '@/components/mode-toggle'
+import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
+import { FileSpreadsheet, Loader2 } from "lucide-react";
+import { useCsvWorker } from "@/hooks/useCsvWorker";
+import { useChunkedDiff } from "@/hooks/useChunkedDiff";
+import { CsvInput } from "@/components/CsvInput";
+import { ConfigPanel } from "@/components/ConfigPanel";
+import { DiffStats } from "@/components/DiffStats";
+import { DiffTable } from "@/components/DiffTable";
+import { StorageMonitor } from "@/components/StorageMonitor";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { ModeToggle } from "@/components/mode-toggle";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
+} from "@/components/ui/tooltip";
 
 const EXAMPLE_SOURCE = `id,name,role,department
 1,John Doe,Developer,Engineering
@@ -28,7 +28,7 @@ const EXAMPLE_SOURCE = `id,name,role,department
 7,Frank Miller,Analyst,Finance
 8,Grace Lee,Consultant,HR
 9,Henry Kim,Support,Customer Service
-10,Ivy Chen,Engineer,Engineering`
+10,Ivy Chen,Engineer,Engineering`;
 
 const EXAMPLE_TARGET = `id,name,role,department
 1,John Doe,Senior Developer,Engineering
@@ -38,132 +38,132 @@ const EXAMPLE_TARGET = `id,name,role,department
 8,Grace Lee,Consultant,Human Resources
 9,Henry Kim,Team Lead,Customer Service
 10,Ivy Chen,Engineer,Engineering
-11,Jack White,Developer,Engineering`
+11,Jack White,Developer,Engineering`;
 
-export const Route = createFileRoute('/')({
+export const Route = createFileRoute("/")({
   component: Index,
-})
+});
 
 function Index() {
-  const { parse, compare } = useCsvWorker()
+  const { parse, compare } = useCsvWorker();
   const {
     startChunkedDiff,
     loadDiffResults,
     isProcessing: isChunkedProcessing,
-  } = useChunkedDiff()
+  } = useChunkedDiff();
   const [sourceData, setSourceData] = useState<{
-    text: string
-    name: string
-  } | null>(null)
+    text: string;
+    name: string;
+  } | null>(null);
   const [targetData, setTargetData] = useState<{
-    text: string
-    name: string
-  } | null>(null)
+    text: string;
+    name: string;
+  } | null>(null);
 
-  const [mode, setMode] = useState<'primary-key' | 'content-match'>(
-    'content-match',
-  )
-  const [keyColumns, setKeyColumns] = useState<Array<string>>([])
-  const [excludedColumns, setExcludedColumns] = useState<Array<string>>([])
-  const [hasHeaders, setHasHeaders] = useState(true)
-  const [ignoreWhitespace, setIgnoreWhitespace] = useState(true)
-  const [caseSensitive, setCaseSensitive] = useState(false)
-  const [ignoreEmptyVsNull, setIgnoreEmptyVsNull] = useState(true)
-  const [useChunkedMode, setUseChunkedMode] = useState(false)
-  const [chunkSize, setChunkSize] = useState(10000)
+  const [mode, setMode] = useState<"primary-key" | "content-match">(
+    "content-match",
+  );
+  const [keyColumns, setKeyColumns] = useState<Array<string>>([]);
+  const [excludedColumns, setExcludedColumns] = useState<Array<string>>([]);
+  const [hasHeaders, setHasHeaders] = useState(true);
+  const [ignoreWhitespace, setIgnoreWhitespace] = useState(true);
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [ignoreEmptyVsNull, setIgnoreEmptyVsNull] = useState(true);
+  const [useChunkedMode, setUseChunkedMode] = useState(false);
+  const [chunkSize, setChunkSize] = useState(10000);
 
-  const [results, setResults] = useState<any>(null)
-  const [loading, setLoading] = useState(false)
+  const [results, setResults] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{
-    percent: number
-    message: string
-    currentChunk?: number
-    totalChunks?: number
-  } | null>(null)
-  const [showOnlyDiffs, setShowOnlyDiffs] = useState(false)
+    percent: number;
+    message: string;
+    currentChunk?: number;
+    totalChunks?: number;
+  } | null>(null);
+  const [showOnlyDiffs, setShowOnlyDiffs] = useState(false);
 
-  const [availableColumns, setAvailableColumns] = useState<Array<string>>([])
+  const [availableColumns, setAvailableColumns] = useState<Array<string>>([]);
   const [headerDetectionWarning, setHeaderDetectionWarning] = useState<
     string | null
-  >(null)
-  const resultsRef = useRef<HTMLDivElement>(null)
+  >(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (results && resultsRef.current) {
-      resultsRef.current.scrollIntoView({ behavior: 'smooth' })
+      resultsRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [results])
+  }, [results]);
 
   const handleSourceChange = async (text: string, name: string) => {
-    setSourceData({ text, name })
-    setHeaderDetectionWarning(null)
+    setSourceData({ text, name });
+    setHeaderDetectionWarning(null);
     // Parse to get headers for available columns
     if (text) {
       try {
-        const res: any = await parse(text, name, hasHeaders)
-        setAvailableColumns(res.headers)
+        const res: any = await parse(text, name, hasHeaders);
+        setAvailableColumns(res.headers);
 
         // Check if auto-detection occurred (headers are Column1, Column2, etc.)
         const hasAutoHeaders = res.headers.some((h: string) =>
-          h.startsWith('Column'),
-        )
+          h.startsWith("Column"),
+        );
         if (hasAutoHeaders && hasHeaders) {
           setHeaderDetectionWarning(
             `Auto-detected that "${name}" doesn't have headers. Using generated column names (Column1, Column2, etc.). You can disable "Has Headers" if this is incorrect.`,
-          )
+          );
         }
       } catch (e) {
-        console.error(e)
+        console.error(e);
       }
     }
-  }
+  };
 
   const handleTargetChange = async (text: string, name: string) => {
-    setTargetData({ text, name })
-    setHeaderDetectionWarning(null)
+    setTargetData({ text, name });
+    setHeaderDetectionWarning(null);
     // Parse to get headers for available columns
     if (text) {
       try {
-        const res: any = await parse(text, name, hasHeaders)
+        const res: any = await parse(text, name, hasHeaders);
 
         // Check if auto-detection occurred (headers are Column1, Column2, etc.)
         const hasAutoHeaders = res.headers.some((h: string) =>
-          h.startsWith('Column'),
-        )
+          h.startsWith("Column"),
+        );
         if (hasAutoHeaders && hasHeaders) {
           setHeaderDetectionWarning(
             `Auto-detected that "${name}" doesn't have headers. Using generated column names (Column1, Column2, etc.). You can disable "Has Headers" if this is incorrect.`,
-          )
+          );
         }
       } catch (e) {
-        console.error(e)
+        console.error(e);
       }
     }
-  }
+  };
 
   const handleLoadExample = () => {
-    handleSourceChange(EXAMPLE_SOURCE, 'example_source.csv')
-    handleTargetChange(EXAMPLE_TARGET, 'example_target.csv')
-  }
+    handleSourceChange(EXAMPLE_SOURCE, "example_source.csv");
+    handleTargetChange(EXAMPLE_TARGET, "example_target.csv");
+  };
 
   const handleCompare = async () => {
-    if (!sourceData || !targetData) return
+    if (!sourceData || !targetData) return;
 
-    setLoading(true)
-    setResults(null)
-    setProgress({ percent: 0, message: 'Starting...' })
+    setLoading(true);
+    setResults(null);
+    setProgress({ percent: 0, message: "Starting..." });
 
     try {
       const sourceParsed = await parse(
         sourceData.text,
         sourceData.name,
         hasHeaders,
-      )
+      );
       const targetParsed = await parse(
         targetData.text,
         targetData.name,
         hasHeaders,
-      )
+      );
 
       // Use chunked mode for large datasets
       if (useChunkedMode) {
@@ -188,13 +188,13 @@ function Index() {
               message: chunkProgress.message,
               currentChunk: chunkProgress.currentChunk,
               totalChunks: chunkProgress.totalChunks,
-            })
+            });
           },
-        )
+        );
 
         // Load results from IndexedDB
-        const res = await loadDiffResults(diffId)
-        setResults(res)
+        const res = await loadDiffResults(diffId);
+        setResults(res);
       } else {
         // Normal mode - load everything into memory
         const res = await compare(
@@ -212,16 +212,16 @@ function Index() {
             hasHeaders,
           },
           (percent, message) => setProgress({ percent, message }),
-        )
-        setResults(res)
+        );
+        setResults(res);
       }
     } catch (e: any) {
-      alert('Error: ' + e.message)
+      alert("Error: " + e.message);
     } finally {
-      setLoading(false)
-      setProgress(null)
+      setLoading(false);
+      setProgress(null);
     }
-  }
+  };
 
   return (
     <div className="container mx-auto py-8 space-y-8">
@@ -298,7 +298,7 @@ function Index() {
         setUseChunkedMode={setUseChunkedMode}
         chunkSize={chunkSize}
         setChunkSize={setChunkSize}
-      />{' '}
+      />{" "}
       {useChunkedMode && <StorageMonitor />}
       <div className="flex justify-center">
         <Button
@@ -314,10 +314,10 @@ function Index() {
                 ? progress.totalChunks
                   ? `${Math.round(progress.percent)}% - Chunk ${progress.currentChunk}/${progress.totalChunks}`
                   : `${Math.round(progress.percent)}% - ${progress.message}`
-                : 'Processing...'}
+                : "Processing..."}
             </>
           ) : (
-            'Compare Files'
+            "Compare Files"
           )}
         </Button>
       </div>
@@ -345,5 +345,5 @@ function Index() {
         </div>
       )}
     </div>
-  )
+  );
 }

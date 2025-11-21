@@ -1,76 +1,76 @@
-import React, { useState } from 'react'
-import { Upload } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
+import React, { useState } from "react";
+import { Upload } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
 interface CsvInputProps {
-  title: string
-  value?: string
-  onDataChange: (data: string, name: string) => void
+  title: string;
+  value?: string;
+  onDataChange: (data: string, name: string) => void;
 }
 
 export function CsvInput({ title, value, onDataChange }: CsvInputProps) {
-  const [text, setText] = useState(value || '')
-  const [fileName, setFileName] = useState('')
-  const [isLargeFile, setIsLargeFile] = useState(false)
-  const [fileSize, setFileSize] = useState(0)
-  const [pendingContent, setPendingContent] = useState<string | null>(null)
+  const [text, setText] = useState(value || "");
+  const [fileName, setFileName] = useState("");
+  const [isLargeFile, setIsLargeFile] = useState(false);
+  const [fileSize, setFileSize] = useState(0);
+  const [pendingContent, setPendingContent] = useState<string | null>(null);
 
   React.useEffect(() => {
     if (value !== undefined) {
-      setText(value)
+      setText(value);
     }
-  }, [value])
+  }, [value]);
 
   const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes'
-    const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-  }
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
+    const file = e.target.files?.[0];
     if (file) {
-      setFileName(file.name)
-      setFileSize(file.size)
-      const isLarge = file.size > 1024 * 1024 // 1MB
-      setIsLargeFile(isLarge)
+      setFileName(file.name);
+      setFileSize(file.size);
+      const isLarge = file.size > 1024 * 1024; // 1MB
+      setIsLargeFile(isLarge);
 
-      const reader = new FileReader()
+      const reader = new FileReader();
       reader.onload = (event) => {
-        const content = event.target?.result as string
+        const content = event.target?.result as string;
         if (!isLarge) {
-          setText(content)
-          setPendingContent(null)
+          setText(content);
+          setPendingContent(null);
         } else {
-          setText('')
-          setPendingContent(content)
+          setText("");
+          setPendingContent(content);
         }
-        onDataChange(content, file.name)
-      }
-      reader.readAsText(file)
+        onDataChange(content, file.name);
+      };
+      reader.readAsText(file);
     }
-  }
+  };
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newText = e.target.value
-    setText(newText)
-    setFileName('Manual Input')
-    setIsLargeFile(false)
-    setPendingContent(null)
-    onDataChange(newText, 'Manual Input')
-  }
+    const newText = e.target.value;
+    setText(newText);
+    setFileName("Manual Input");
+    setIsLargeFile(false);
+    setPendingContent(null);
+    onDataChange(newText, "Manual Input");
+  };
 
   const handleShowAnyway = () => {
     if (pendingContent !== null) {
-      setText(pendingContent)
-      setIsLargeFile(false)
-      setPendingContent(null)
+      setText(pendingContent);
+      setIsLargeFile(false);
+      setPendingContent(null);
     }
-  }
+  };
 
   return (
     <Card className="w-full">
@@ -81,7 +81,7 @@ export function CsvInput({ title, value, onDataChange }: CsvInputProps) {
         <div className="flex items-center gap-4">
           <Button variant="outline" className="relative w-full">
             <Upload className="mr-2 h-4 w-4" />
-            {fileName || 'Upload CSV File'}
+            {fileName || "Upload CSV File"}
             <input
               type="file"
               accept=".csv"
@@ -122,5 +122,5 @@ export function CsvInput({ title, value, onDataChange }: CsvInputProps) {
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

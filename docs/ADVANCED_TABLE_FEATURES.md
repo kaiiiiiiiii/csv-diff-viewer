@@ -107,28 +107,28 @@ Column visibility preferences are automatically saved to localStorage and restor
 **Implementation**:
 
 ```typescript
-const STORAGE_KEY = 'csv-diff-viewer-column-visibility'
+const STORAGE_KEY = "csv-diff-viewer-column-visibility";
 
 // Load on mount
 useEffect(() => {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY)
+    const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
-      setColumnVisibility(JSON.parse(stored))
+      setColumnVisibility(JSON.parse(stored));
     }
   } catch (error) {
-    console.error('Failed to load column visibility from localStorage:', error)
+    console.error("Failed to load column visibility from localStorage:", error);
   }
-}, [])
+}, []);
 
 // Save on change
 useEffect(() => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(columnVisibility))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(columnVisibility));
   } catch (error) {
-    console.error('Failed to save column visibility to localStorage:', error)
+    console.error("Failed to save column visibility to localStorage:", error);
   }
-}, [columnVisibility])
+}, [columnVisibility]);
 ```
 
 ## Existing Features (Enhanced)
