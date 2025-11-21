@@ -2,10 +2,12 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { FileSpreadsheet, Loader2 } from 'lucide-react'
 import { useCsvWorker } from '@/hooks/useCsvWorker'
+import { useChunkedDiff } from '@/hooks/useChunkedDiff'
 import { CsvInput } from '@/components/CsvInput'
 import { ConfigPanel } from '@/components/ConfigPanel'
 import { DiffStats } from '@/components/DiffStats'
 import { DiffTable } from '@/components/DiffTable'
+import { StorageMonitor } from '@/components/StorageMonitor'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
@@ -44,6 +46,11 @@ export const Route = createFileRoute('/')({
 
 function Index() {
   const { parse, compare } = useCsvWorker()
+  const {
+    startChunkedDiff,
+    loadDiffResults,
+    isProcessing: isChunkedProcessing,
+  } = useChunkedDiff()
   const [sourceData, setSourceData] = useState<{
     text: string
     name: string
@@ -62,16 +69,23 @@ function Index() {
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(true)
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [ignoreEmptyVsNull, setIgnoreEmptyVsNull] = useState(true)
+  const [useChunkedMode, setUseChunkedMode] = useState(false)
+  const [chunkSize, setChunkSize] = useState(10000)
 
   const [results, setResults] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState<{
     percent: number
     message: string
+    currentChunk?: number
+    totalChunks?: number
   } | null>(null)
   const [showOnlyDiffs, setShowOnlyDiffs] = useState(false)
 
   const [availableColumns, setAvailableColumns] = useState<Array<string>>([])
+  const [headerDetectionWarning, setHeaderDetectionWarning] = useState<
+    string | null
+  >(null)
   const resultsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -82,19 +96,49 @@ function Index() {
 
   const handleSourceChange = async (text: string, name: string) => {
     setSourceData({ text, name })
+    setHeaderDetectionWarning(null)
     // Parse to get headers for available columns
     if (text) {
       try {
         const res: any = await parse(text, name, hasHeaders)
         setAvailableColumns(res.headers)
+
+        // Check if auto-detection occurred (headers are Column1, Column2, etc.)
+        const hasAutoHeaders = res.headers.some((h: string) =>
+          h.startsWith('Column'),
+        )
+        if (hasAutoHeaders && hasHeaders) {
+          setHeaderDetectionWarning(
+            `Auto-detected that "${name}" doesn't have headers. Using generated column names (Column1, Column2, etc.). You can disable "Has Headers" if this is incorrect.`,
+          )
+        }
       } catch (e) {
         console.error(e)
       }
     }
   }
 
-  const handleTargetChange = (text: string, name: string) => {
+  const handleTargetChange = async (text: string, name: string) => {
     setTargetData({ text, name })
+    setHeaderDetectionWarning(null)
+    // Parse to get headers for available columns
+    if (text) {
+      try {
+        const res: any = await parse(text, name, hasHeaders)
+
+        // Check if auto-detection occurred (headers are Column1, Column2, etc.)
+        const hasAutoHeaders = res.headers.some((h: string) =>
+          h.startsWith('Column'),
+        )
+        if (hasAutoHeaders && hasHeaders) {
+          setHeaderDetectionWarning(
+            `Auto-detected that "${name}" doesn't have headers. Using generated column names (Column1, Column2, etc.). You can disable "Has Headers" if this is incorrect.`,
+          )
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    }
   }
 
   const handleLoadExample = () => {
@@ -121,23 +165,56 @@ function Index() {
         hasHeaders,
       )
 
-      const res = await compare(
-        sourceParsed,
-        targetParsed,
-        {
-          comparisonMode: mode,
-          keyColumns: keyColumns.filter(Boolean),
-          excludedColumns: excludedColumns.filter(Boolean),
-          caseSensitive,
-          ignoreWhitespace,
-          ignoreEmptyVsNull,
-          sourceRaw: sourceData.text,
-          targetRaw: targetData.text,
-          hasHeaders,
-        },
-        (percent, message) => setProgress({ percent, message }),
-      )
-      setResults(res)
+      // Use chunked mode for large datasets
+      if (useChunkedMode) {
+        const diffId = await startChunkedDiff(
+          sourceData.text,
+          targetData.text,
+          sourceParsed.headers,
+          targetParsed.headers,
+          {
+            comparisonMode: mode,
+            keyColumns: keyColumns.filter(Boolean),
+            excludedColumns: excludedColumns.filter(Boolean),
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            hasHeaders,
+            chunkSize,
+          },
+          (chunkProgress) => {
+            setProgress({
+              percent: chunkProgress.percent,
+              message: chunkProgress.message,
+              currentChunk: chunkProgress.currentChunk,
+              totalChunks: chunkProgress.totalChunks,
+            })
+          },
+        )
+
+        // Load results from IndexedDB
+        const res = await loadDiffResults(diffId)
+        setResults(res)
+      } else {
+        // Normal mode - load everything into memory
+        const res = await compare(
+          sourceParsed,
+          targetParsed,
+          {
+            comparisonMode: mode,
+            keyColumns: keyColumns.filter(Boolean),
+            excludedColumns: excludedColumns.filter(Boolean),
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            sourceRaw: sourceData.text,
+            targetRaw: targetData.text,
+            hasHeaders,
+          },
+          (percent, message) => setProgress({ percent, message }),
+        )
+        setResults(res)
+      }
     } catch (e: any) {
       alert('Error: ' + e.message)
     } finally {
@@ -187,6 +264,20 @@ function Index() {
           value={targetData?.text}
         />
       </div>
+      {headerDetectionWarning && (
+        <div className="bg-amber-50 border border-amber-200 rounded-md p-4">
+          <div className="flex">
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-amber-800">
+                Header Detection
+              </h3>
+              <div className="mt-2 text-sm text-amber-700">
+                <p>{headerDetectionWarning}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <ConfigPanel
         mode={mode}
         setMode={setMode}
@@ -203,7 +294,12 @@ function Index() {
         ignoreEmptyVsNull={ignoreEmptyVsNull}
         setIgnoreEmptyVsNull={setIgnoreEmptyVsNull}
         availableColumns={availableColumns}
+        useChunkedMode={useChunkedMode}
+        setUseChunkedMode={setUseChunkedMode}
+        chunkSize={chunkSize}
+        setChunkSize={setChunkSize}
       />{' '}
+      {useChunkedMode && <StorageMonitor />}
       <div className="flex justify-center">
         <Button
           size="lg"
@@ -215,7 +311,9 @@ function Index() {
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               {progress
-                ? `${Math.round(progress.percent)}% - ${progress.message}`
+                ? progress.totalChunks
+                  ? `${Math.round(progress.percent)}% - Chunk ${progress.currentChunk}/${progress.totalChunks}`
+                  : `${Math.round(progress.percent)}% - ${progress.message}`
                 : 'Processing...'}
             </>
           ) : (

@@ -25,6 +25,10 @@ interface ConfigPanelProps {
   ignoreEmptyVsNull: boolean
   setIgnoreEmptyVsNull: (val: boolean) => void
   availableColumns: Array<string>
+  useChunkedMode?: boolean
+  setUseChunkedMode?: (val: boolean) => void
+  chunkSize?: number
+  setChunkSize?: (val: number) => void
 }
 
 export function ConfigPanel({
@@ -43,6 +47,10 @@ export function ConfigPanel({
   ignoreEmptyVsNull,
   setIgnoreEmptyVsNull,
   availableColumns,
+  useChunkedMode = false,
+  setUseChunkedMode,
+  chunkSize = 10000,
+  setChunkSize,
 }: ConfigPanelProps) {
   return (
     <Card>
@@ -126,6 +134,42 @@ export function ConfigPanel({
             onCheckedChange={setIgnoreEmptyVsNull}
           />
         </div>
+
+        {setUseChunkedMode && (
+          <>
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Chunked Processing</label>
+                <p className="text-xs text-muted-foreground">
+                  For large datasets (1M+ rows). Stores results in IndexedDB.
+                </p>
+              </div>
+              <Switch
+                checked={useChunkedMode}
+                onCheckedChange={setUseChunkedMode}
+              />
+            </div>
+
+            {useChunkedMode && setChunkSize && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Chunk Size (rows per chunk)
+                </label>
+                <Input
+                  type="number"
+                  value={chunkSize}
+                  onChange={(e) => setChunkSize(parseInt(e.target.value, 10) || 10000)}
+                  min={1000}
+                  max={100000}
+                  step={1000}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Default: 10,000 rows. Lower for less memory, higher for faster processing.
+                </p>
+              </div>
+            )}
+          </>
+        )}
       </CardContent>
     </Card>
   )
