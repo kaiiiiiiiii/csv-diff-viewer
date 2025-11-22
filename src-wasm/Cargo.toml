@@ -19,12 +19,17 @@ similar = "2.6"          # Text diff algorithm
 ahash = "0.8"            # Fast hashing for HashMaps
 getrandom = { version = "0.3", features = ["wasm_js"] }
 strsim = "0.11"          # String similarity algorithms (Jaro-Winkler, Levenshtein)
-wasm-bindgen-rayon = "1.3"  # Multi-threaded parallelization for WASM
-rayon = "1.11"           # Data parallelism library
+rayon = { version = "1.11", optional = true }  # Data parallelism library (optional for WASM)
+wasm-bindgen-rayon = { version = "1.3", optional = true }  # Rayon support for WASM
 console_error_panic_hook = "0.1" # Log panics to console
+
+[features]
+default = ["parallel"]
+parallel = ["rayon", "wasm-bindgen-rayon"]
 
 [dev-dependencies]
 serde_json = "1.0"   # For testing binary encoding vs JSON
+wasm-bindgen-test = "0.3"  # For testing WASM bindings
 
 [profile.release]
 opt-level = 3       # Optimize for speed (changed from 'z' for size to '3' for speed)
@@ -39,3 +44,6 @@ strip = true        # Strip symbols
 # For older browser support, remove advanced flags
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O4", "--enable-simd", "--enable-bulk-memory", "--enable-threads"]  # Maximum optimization + SIMD + bulk memory + threads
+
+[package.metadata.wasm-pack.profile.dev]
+wasm-opt = ["-O0", "--enable-simd", "--enable-bulk-memory", "--enable-threads"]  # Development with atomics and bulk memory

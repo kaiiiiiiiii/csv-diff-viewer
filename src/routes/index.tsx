@@ -40,17 +40,39 @@ const EXAMPLE_TARGET = `id,name,role,department
 10,Ivy Chen,Engineer,Engineering
 11,Jack White,Developer,Engineering`;
 
+const normalizeDiffResult = (
+  result: any,
+  fallbackSource?: { headers?: Array<string>; rows?: Array<any> },
+  fallbackTarget?: { headers?: Array<string>; rows?: Array<any> },
+) => {
+  const ensureSection = (
+    section: any,
+    fallback?: { headers?: Array<string>; rows?: Array<any> },
+  ) => ({
+    headers: section?.headers ?? fallback?.headers ?? [],
+    rows: section?.rows ?? fallback?.rows ?? [],
+  });
+
+  return {
+    added: result?.added ?? [],
+    removed: result?.removed ?? [],
+    modified: result?.modified ?? [],
+    unchanged: result?.unchanged ?? [],
+    source: ensureSection(result?.source, fallbackSource),
+    target: ensureSection(result?.target, fallbackTarget),
+    keyColumns: result?.keyColumns ?? [],
+    excludedColumns: result?.excludedColumns ?? [],
+    mode: result?.mode ?? "content-match",
+  };
+};
+
 export const Route = createFileRoute("/")({
   component: Index,
 });
 
 function Index() {
   const { parse, compare } = useCsvWorker();
-  const {
-    startChunkedDiff,
-    loadDiffResults,
-    isProcessing: isChunkedProcessing,
-  } = useChunkedDiff();
+  const { startChunkedDiff, loadDiffResults } = useChunkedDiff();
   const [sourceData, setSourceData] = useState<{
     text: string;
     name: string;
@@ -194,7 +216,7 @@ function Index() {
 
         // Load results from IndexedDB
         const res = await loadDiffResults(diffId);
-        setResults(res);
+        setResults(normalizeDiffResult(res, sourceParsed, targetParsed));
       } else {
         // Normal mode - load everything into memory
         const res = await compare(
@@ -213,7 +235,7 @@ function Index() {
           },
           (percent, message) => setProgress({ percent, message }),
         );
-        setResults(res);
+        setResults(normalizeDiffResult(res, sourceParsed, targetParsed));
       }
     } catch (e: any) {
       alert("Error: " + e.message);

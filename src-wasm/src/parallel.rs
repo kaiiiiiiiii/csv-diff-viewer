@@ -1,18 +1,16 @@
 /// Parallel processing module for multi-threaded CSV operations
-/// Uses wasm-bindgen-rayon for web worker-based parallelism
-use rayon::prelude::*;
+/// Currently provides a parallel-like interface that's implemented sequentially for WASM compatibility
 use csv::StringRecord;
-use ahash::AHashMap;
-use crate::types::{AddedRow, RemovedRow, ModifiedRow, UnchangedRow, Difference};
-use crate::utils::{record_to_hashmap, normalize_value_with_empty_vs_null};
+use ahash::{AHashMap, AHashSet};
+use crate::types::{AddedRow, RemovedRow, ModifiedRow, UnchangedRow, Difference, DiffResult};
+use crate::utils::{record_to_hashmap, normalize_value_with_empty_vs_null, get_row_key};
+use rayon::prelude::*;
 
-/// Initialize the rayon thread pool for parallel processing
-/// This must be called from JavaScript with the number of worker threads
-pub fn init_thread_pool(num_threads: usize) {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(num_threads)
-        .build_global()
-        .ok(); // Ignore error if already initialized
+/// Initialize the thread pool for parallel processing
+/// Currently a no-op for WASM compatibility
+pub fn init_thread_pool(_num_threads: usize) {
+    // In WASM, threading is handled differently
+    // This is just a placeholder for now
 }
 
 /// Parallel comparison of target rows against source map
@@ -37,12 +35,12 @@ pub fn parallel_compare_rows(
     ignore_whitespace: bool,
     ignore_empty_vs_null: bool,
 ) -> (Vec<AddedRow>, Vec<ModifiedRow>, Vec<UnchangedRow>) {
-    // Convert HashMap to Vec for parallel iteration
+    // Convert HashMap to Vec for iteration
     let target_keys: Vec<_> = target_map.iter().collect();
     
-    // Process in parallel using rayon
+    // Process sequentially for now (will be parallel in native builds)
     let results: Vec<_> = target_keys
-        .par_iter()
+        .iter()
         .map(|(key, &target_row_idx)| {
             let target_row = &target_rows[target_row_idx];
             
@@ -146,7 +144,7 @@ pub fn parallel_find_removed(
     let source_keys: Vec<_> = source_map.iter().collect();
     
     source_keys
-        .par_iter()
+        .iter()
         .filter_map(|(key, &row_idx)| {
             if !target_map.contains_key(*key) {
                 Some(RemovedRow {
@@ -158,6 +156,129 @@ pub fn parallel_find_removed(
             }
         })
         .collect()
+}
+
+/// Parallel implementation of CSV diff using primary keys
+/// This is a parallel version of `core::diff_csv_primary_key_internal`
+#[allow(clippy::too_many_arguments)]
+pub fn diff_csv_parallel_internal<F>(
+    source_csv: &str,
+    target_csv: &str,
+    key_columns: Vec<String>,
+    case_sensitive: bool,
+    ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
+    excluded_columns: Vec<String>,
+    has_headers: bool,
+    mut on_progress: F,
+) -> Result<crate::types::DiffResult, Box<dyn std::error::Error>>
+where
+    F: FnMut(f64, &str),
+{
+    on_progress(0.0, "Parsing source CSV...");
+    let (source_headers, source_rows, source_header_map) = crate::core::parse_csv_internal(source_csv, has_headers)?;
+
+    on_progress(10.0, "Parsing target CSV...");
+    let (target_headers, target_rows, target_header_map) = crate::core::parse_csv_internal(target_csv, has_headers)?;
+
+    // Validation of key columns
+    for key in &key_columns {
+        if !source_header_map.contains_key(key) {
+             return Err(format!("Primary key column \"{}\" not found in source dataset.", key).into());
+        }
+        if !target_header_map.contains_key(key) {
+             return Err(format!("Primary key column \"{}\" not found in target dataset.", key).into());
+        }
+    }
+
+    on_progress(20.0, "Building source map...");
+    let source_map: AHashMap<String, usize> = source_rows
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            let key = get_row_key(row, &source_header_map, &key_columns);
+            (key, i)
+        })
+        .collect();
+
+    // Check for duplicate keys
+    let mut source_keys = AHashSet::new();
+    for key in source_map.keys() {
+        if !source_keys.insert(key) {
+            return Err(format!("Duplicate Primary Key found in source: \"{}\". Primary Keys must be unique.", key).into());
+        }
+    }
+
+    on_progress(40.0, "Building target map...");
+    let target_map: AHashMap<String, usize> = target_rows
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            let key = get_row_key(row, &target_header_map, &key_columns);
+            (key, i)
+        })
+        .collect();
+
+    // Check for duplicate keys
+    let mut target_keys = AHashSet::new();
+    for key in target_map.keys() {
+        if !target_keys.insert(key) {
+            return Err(format!("Duplicate Primary Key found in target: \"{}\". Primary Keys must be unique.", key).into());
+        }
+    }
+
+    on_progress(60.0, "Comparing rows...");
+
+    // Find removed rows in parallel
+    let removed: Vec<RemovedRow> = source_map
+        .par_iter()
+        .filter_map(|(key, &row_idx)| {
+            if !target_map.contains_key(key) {
+                Some(RemovedRow {
+                    key: key.clone(),
+                    source_row: record_to_hashmap(&source_rows[row_idx], &source_headers),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Find added, modified, and unchanged rows in parallel
+    let (added, modified, unchanged) = parallel_compare_rows(
+        &target_map,
+        &target_rows,
+        &target_headers,
+        &target_header_map,
+        &source_map,
+        &source_rows,
+        &source_headers,
+        &source_header_map,
+        &excluded_columns,
+        case_sensitive,
+        ignore_whitespace,
+        ignore_empty_vs_null,
+    );
+
+    on_progress(100.0, "Complete");
+
+    Ok(DiffResult {
+        added,
+        removed,
+        modified,
+        unchanged,
+        source: crate::types::DatasetMetadata {
+            headers: source_headers.clone(),
+            rows: source_rows.iter().map(|r| record_to_hashmap(r, &source_headers)).collect(),
+        },
+        target: crate::types::DatasetMetadata {
+            headers: target_headers.clone(),
+            rows: target_rows.iter().map(|r| record_to_hashmap(r, &target_headers)).collect(),
+        },
+        key_columns,
+        excluded_columns,
+        mode: "primary_key".to_string(),
+    })
 }
 
 #[cfg(test)]

@@ -43,12 +43,12 @@ import {
 } from "@/components/AdvancedSearchInput";
 
 interface DiffResult {
-  added: Array<any>;
-  removed: Array<any>;
-  modified: Array<any>;
-  unchanged: Array<any>;
-  source: { headers: Array<string> };
-  target: { headers: Array<string> };
+  added?: Array<any>;
+  removed?: Array<any>;
+  modified?: Array<any>;
+  unchanged?: Array<any>;
+  source?: { headers?: Array<string> };
+  target?: { headers?: Array<string> };
 }
 
 interface DiffTableProps {
@@ -103,23 +103,25 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
   // 1. Prepare Data
   const data = useMemo(() => {
     const allRows: Array<DiffRow> = [];
+    const modifiedRows = results.modified ?? [];
+    const addedRows = results.added ?? [];
+    const removedRows = results.removed ?? [];
+    const unchangedRows = results.unchanged ?? [];
 
-    allRows.push(...results.modified.map((r) => ({ ...r, type: "modified" })));
-    allRows.push(...results.added.map((r) => ({ ...r, type: "added" })));
-    allRows.push(...results.removed.map((r) => ({ ...r, type: "removed" })));
+    allRows.push(...modifiedRows.map((r) => ({ ...r, type: "modified" })));
+    allRows.push(...addedRows.map((r) => ({ ...r, type: "added" })));
+    allRows.push(...removedRows.map((r) => ({ ...r, type: "removed" })));
 
     if (!showOnlyDiffs) {
-      allRows.push(
-        ...results.unchanged.map((r) => ({ ...r, type: "unchanged" })),
-      );
+      allRows.push(...unchangedRows.map((r) => ({ ...r, type: "unchanged" })));
     }
     return allRows;
   }, [results, showOnlyDiffs]);
 
   // 2. Define Columns
   const availableColumns = useMemo(() => {
-    const sourceHeaders = results.source.headers;
-    const targetHeaders = results.target.headers;
+    const sourceHeaders = results.source?.headers ?? [];
+    const targetHeaders = results.target?.headers ?? [];
 
     // Create a union of headers while preserving order as much as possible
     const headerSet = new Set(targetHeaders);
@@ -131,7 +133,11 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
       }
     });
 
-    return combinedHeaders.length > 0 ? combinedHeaders : sourceHeaders;
+    if (combinedHeaders.length > 0) {
+      return combinedHeaders;
+    }
+
+    return sourceHeaders.length > 0 ? sourceHeaders : targetHeaders;
   }, [results]);
 
   const columns = useMemo<Array<ColumnDef<DiffRow>>>(() => {
