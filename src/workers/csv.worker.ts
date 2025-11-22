@@ -19,9 +19,9 @@ let differ: CsvDiffer | null = null;
 let wasmMemory: WebAssembly.Memory | null = null;
 
 // Configuration flags for performance optimizations
-const USE_BINARY_ENCODING = true;  // Enable binary encoding for faster data transfer
-const USE_PARALLEL_PROCESSING = true;  // Enable multi-threaded processing with rayon
-const USE_TRANSFERABLES = true;  // Enable transferable ArrayBuffers for zero-copy transfer
+const USE_BINARY_ENCODING = true; // Enable binary encoding for faster data transfer
+const USE_PARALLEL_PROCESSING = true; // Enable multi-threaded processing with rayon
+const USE_TRANSFERABLES = true; // Enable transferable ArrayBuffers for zero-copy transfer
 
 // Performance monitoring and profiling
 interface PerformanceMetrics {
@@ -39,12 +39,12 @@ let currentMetrics: PerformanceMetrics | null = null;
 class BufferPool {
   private pools: Map<number, number[]> = new Map();
   private readonly maxPoolSize = 10;
-  
+
   get(size: number): number | null {
     const pool = this.pools.get(size);
     return pool?.pop() ?? null;
   }
-  
+
   put(size: number, ptr: number): void {
     if (!this.pools.has(size)) {
       this.pools.set(size, []);
@@ -57,7 +57,7 @@ class BufferPool {
       dealloc(ptr, size);
     }
   }
-  
+
   clear(): void {
     for (const [size, ptrs] of this.pools) {
       for (const ptr of ptrs) {
@@ -77,16 +77,21 @@ async function initWasm() {
     // The init() function returns the wasm exports which includes memory
     wasmMemory = wasmExports.memory;
     wasmInitialized = true;
-    
+
     // Initialize parallel processing if enabled
     if (USE_PARALLEL_PROCESSING) {
       try {
         // Use hardware concurrency if available, otherwise default to 4 threads
         const numThreads = (navigator.hardwareConcurrency || 4) - 1; // Reserve 1 for main thread
         init_parallel_processing(Math.max(1, numThreads));
-        console.log(`[CSV Worker] Initialized parallel processing with ${numThreads} threads`);
+        console.log(
+          `[CSV Worker] Initialized parallel processing with ${numThreads} threads`,
+        );
       } catch (error) {
-        console.warn('[CSV Worker] Failed to initialize parallel processing:', error);
+        console.warn(
+          "[CSV Worker] Failed to initialize parallel processing:",
+          error,
+        );
       }
     }
   }
@@ -160,16 +165,17 @@ ctx.onmessage = async function (e) {
             ignoreEmptyVsNull,
             excludedColumns,
             hasHeaders !== false,
-            (percent: number, message: string) => emitProgress(percent, message),
+            (percent: number, message: string) =>
+              emitProgress(percent, message),
           );
-          
+
           // Decode binary result
           const resultLength = get_binary_result_length();
           if (!wasmMemory) {
             throw new Error("WASM memory not initialized");
           }
           results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
-          
+
           // Clean up WASM memory
           dealloc(resultPtr, resultLength);
           emitProgress(100, "Comparison complete");
@@ -183,16 +189,17 @@ ctx.onmessage = async function (e) {
             ignoreEmptyVsNull,
             excludedColumns,
             hasHeaders !== false,
-            (percent: number, message: string) => emitProgress(percent, message),
+            (percent: number, message: string) =>
+              emitProgress(percent, message),
           );
-          
+
           // Decode binary result
           const resultLength = get_binary_result_length();
           if (!wasmMemory) {
             throw new Error("WASM memory not initialized");
           }
           results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
-          
+
           // Clean up WASM memory
           dealloc(resultPtr, resultLength);
           emitProgress(100, "Comparison complete");
@@ -213,12 +220,16 @@ ctx.onmessage = async function (e) {
                 ignoreEmptyVsNull,
                 excludedColumns,
                 hasHeaders !== false,
-                (percent: number, message: string) => emitProgress(percent, message),
+                (percent: number, message: string) =>
+                  emitProgress(percent, message),
               );
               emitProgress(100, "Comparison complete (Parallel)");
             } catch (error) {
               // Fallback to non-parallel if parallel fails
-              console.warn('[CSV Worker] Parallel processing failed, falling back to single-threaded:', error);
+              console.warn(
+                "[CSV Worker] Parallel processing failed, falling back to single-threaded:",
+                error,
+              );
               emitProgress(0, "Starting comparison (Primary Key)...");
               results = diff_csv_primary_key(
                 sourceRaw,
@@ -229,7 +240,8 @@ ctx.onmessage = async function (e) {
                 ignoreEmptyVsNull,
                 excludedColumns,
                 hasHeaders !== false,
-                (percent: number, message: string) => emitProgress(percent, message),
+                (percent: number, message: string) =>
+                  emitProgress(percent, message),
               );
               emitProgress(100, "Comparison complete");
             }
@@ -244,7 +256,8 @@ ctx.onmessage = async function (e) {
               ignoreEmptyVsNull,
               excludedColumns,
               hasHeaders !== false,
-              (percent: number, message: string) => emitProgress(percent, message),
+              (percent: number, message: string) =>
+                emitProgress(percent, message),
             );
             emitProgress(100, "Comparison complete");
           }
@@ -258,7 +271,8 @@ ctx.onmessage = async function (e) {
             ignoreEmptyVsNull,
             excludedColumns,
             hasHeaders !== false,
-            (percent: number, message: string) => emitProgress(percent, message),
+            (percent: number, message: string) =>
+              emitProgress(percent, message),
           );
           emitProgress(100, "Comparison complete");
         }
@@ -267,35 +281,36 @@ ctx.onmessage = async function (e) {
       // Calculate performance metrics
       if (currentMetrics) {
         currentMetrics.totalTime = performance.now() - currentMetrics.startTime;
-        currentMetrics.memoryUsed = (wasmMemory?.buffer.byteLength ?? 0) / 1024 / 1024; // MB
+        currentMetrics.memoryUsed =
+          (wasmMemory?.buffer.byteLength ?? 0) / 1024 / 1024; // MB
       }
 
       // Post results with performance metrics using Transferable ArrayBuffers
       // Check if results contain ArrayBuffers that can be transferred
       const transferables: Transferable[] = [];
-      
+
       // Extract any ArrayBuffer objects from the results for zero-copy transfer
       const extractTransferables = (obj: any): void => {
         if (obj instanceof ArrayBuffer) {
           transferables.push(obj);
         } else if (ArrayBuffer.isView(obj)) {
           transferables.push(obj.buffer);
-        } else if (obj && typeof obj === 'object') {
+        } else if (obj && typeof obj === "object") {
           Object.values(obj).forEach(extractTransferables);
         }
       };
-      
+
       extractTransferables(results);
-      
+
       // Use transferable ArrayBuffers for zero-copy data transfer
       ctx.postMessage(
-        { 
-          requestId, 
-          type: "compare-complete", 
+        {
+          requestId,
+          type: "compare-complete",
           data: results,
-          metrics: currentMetrics 
+          metrics: currentMetrics,
         },
-        transferables.length > 0 ? transferables : undefined
+        transferables.length > 0 ? transferables : undefined,
       );
     } else if (type === "init-differ") {
       const {
@@ -371,9 +386,9 @@ ctx.onmessage = async function (e) {
       metrics: currentMetrics,
       wasmMemorySize: wasmMemory?.buffer.byteLength,
     };
-    
-    console.error('[CSV Worker Error]', errorContext);
-    
+
+    console.error("[CSV Worker Error]", errorContext);
+
     ctx.postMessage({
       requestId,
       type: "error",
@@ -386,7 +401,7 @@ ctx.onmessage = async function (e) {
 };
 
 // Cleanup on worker termination
-ctx.addEventListener('close', () => {
+ctx.addEventListener("close", () => {
   bufferPool.clear();
   if (differ) {
     differ.free();

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Card } from '@/components/ui/card';
+import React, { useState, useEffect } from "react";
+import { Card } from "@/components/ui/card";
 
 interface PerformanceMetrics {
   startTime: number;
@@ -15,7 +15,7 @@ interface OperationLog {
   timestamp: number;
   operation: string;
   duration: number;
-  status: 'success' | 'error' | 'running';
+  status: "success" | "error" | "running";
   metrics?: PerformanceMetrics;
   error?: string;
 }
@@ -40,7 +40,7 @@ export const PerformanceDashboard: React.FC = () => {
     if (!isVisible) return;
 
     const updateMemory = () => {
-      if ('memory' in performance) {
+      if ("memory" in performance) {
         const mem = (performance as any).memory;
         setMemoryInfo({
           used: mem.usedJSHeapSize / 1024 / 1024,
@@ -70,13 +70,19 @@ export const PerformanceDashboard: React.FC = () => {
         metrics,
         error,
       };
-      
+
       setOperations((prev) => [newLog, ...prev].slice(0, 50)); // Keep last 50 operations
     };
 
-    window.addEventListener('performance-log', handlePerformanceEvent as EventListener);
+    window.addEventListener(
+      "performance-log",
+      handlePerformanceEvent as EventListener,
+    );
     return () => {
-      window.removeEventListener('performance-log', handlePerformanceEvent as EventListener);
+      window.removeEventListener(
+        "performance-log",
+        handlePerformanceEvent as EventListener,
+      );
     };
   }, [isVisible]);
 
@@ -95,14 +101,14 @@ export const PerformanceDashboard: React.FC = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'success':
-        return 'text-green-600';
-      case 'error':
-        return 'text-red-600';
-      case 'running':
-        return 'text-blue-600';
+      case "success":
+        return "text-green-600";
+      case "error":
+        return "text-red-600";
+      case "running":
+        return "text-blue-600";
       default:
-        return 'text-gray-600';
+        return "text-gray-600";
     }
   };
 
@@ -111,19 +117,28 @@ export const PerformanceDashboard: React.FC = () => {
       <div className="p-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex justify-between items-center">
           <h3 className="font-semibold text-sm">Performance Dashboard</h3>
-          <span className="text-xs text-gray-500 dark:text-gray-400">DEV ONLY</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            DEV ONLY
+          </span>
         </div>
-        
+
         {memoryInfo && (
           <div className="mt-2 text-xs space-y-1">
             <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Memory Used:</span>
-              <span className="font-mono">{formatMemory(memoryInfo.used)} / {formatMemory(memoryInfo.total)}</span>
+              <span className="text-gray-600 dark:text-gray-400">
+                Memory Used:
+              </span>
+              <span className="font-mono">
+                {formatMemory(memoryInfo.used)} /{" "}
+                {formatMemory(memoryInfo.total)}
+              </span>
             </div>
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
               <div
                 className="bg-blue-600 h-1.5 rounded-full transition-all"
-                style={{ width: `${(memoryInfo.used / memoryInfo.total) * 100}%` }}
+                style={{
+                  width: `${(memoryInfo.used / memoryInfo.total) * 100}%`,
+                }}
               />
             </div>
           </div>
@@ -152,36 +167,44 @@ export const PerformanceDashboard: React.FC = () => {
                   <div className="font-mono">{formatDuration(op.duration)}</div>
                 </div>
               </div>
-              
+
               {op.metrics && (
                 <div className="mt-2 text-xs space-y-1 border-t border-gray-200 dark:border-gray-700 pt-2">
                   {op.metrics.parseTime !== undefined && (
                     <div className="flex justify-between">
                       <span>Parse:</span>
-                      <span className="font-mono">{formatDuration(op.metrics.parseTime)}</span>
+                      <span className="font-mono">
+                        {formatDuration(op.metrics.parseTime)}
+                      </span>
                     </div>
                   )}
                   {op.metrics.diffTime !== undefined && (
                     <div className="flex justify-between">
                       <span>Diff:</span>
-                      <span className="font-mono">{formatDuration(op.metrics.diffTime)}</span>
+                      <span className="font-mono">
+                        {formatDuration(op.metrics.diffTime)}
+                      </span>
                     </div>
                   )}
                   {op.metrics.serializeTime !== undefined && (
                     <div className="flex justify-between">
                       <span>Serialize:</span>
-                      <span className="font-mono">{formatDuration(op.metrics.serializeTime)}</span>
+                      <span className="font-mono">
+                        {formatDuration(op.metrics.serializeTime)}
+                      </span>
                     </div>
                   )}
                   {op.metrics.memoryUsed !== undefined && (
                     <div className="flex justify-between">
                       <span>WASM Memory:</span>
-                      <span className="font-mono">{formatMemory(op.metrics.memoryUsed)}</span>
+                      <span className="font-mono">
+                        {formatMemory(op.metrics.memoryUsed)}
+                      </span>
                     </div>
                   )}
                 </div>
               )}
-              
+
               {op.error && (
                 <div className="mt-2 text-red-600 dark:text-red-400 text-xs p-1 bg-red-50 dark:bg-red-900/20 rounded">
                   {op.error}
@@ -199,11 +222,11 @@ export const PerformanceDashboard: React.FC = () => {
 export const logPerformance = (
   operation: string,
   duration: number,
-  status: 'success' | 'error' | 'running' = 'success',
+  status: "success" | "error" | "running" = "success",
   metrics?: PerformanceMetrics,
-  error?: string
+  error?: string,
 ) => {
-  const event = new CustomEvent('performance-log', {
+  const event = new CustomEvent("performance-log", {
     detail: {
       operation,
       duration,

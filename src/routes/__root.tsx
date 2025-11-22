@@ -1,6 +1,7 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 import appCss from "../styles.css?url";
 import { ThemeProvider } from "@/components/theme-provider";
+import { PerformanceDashboard } from "@/components/PerformanceDashboard";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -87,6 +88,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <body>
         <ThemeProvider defaultTheme="system" storageKey="theme">
           {children}
+          <PerformanceDashboard />
         </ThemeProvider>
         <Scripts />
       </body>
