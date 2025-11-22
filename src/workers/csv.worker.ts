@@ -19,6 +19,53 @@ let wasmMemory: WebAssembly.Memory | null = null;
 // Set to true for maximum performance, false for easier debugging
 const USE_BINARY_ENCODING = true;
 
+// Performance monitoring and profiling
+interface PerformanceMetrics {
+  startTime: number;
+  parseTime?: number;
+  diffTime?: number;
+  serializeTime?: number;
+  totalTime?: number;
+  memoryUsed?: number;
+}
+
+let currentMetrics: PerformanceMetrics | null = null;
+
+// Buffer pool for WASM allocations to reduce malloc/free overhead
+class BufferPool {
+  private pools: Map<number, number[]> = new Map();
+  private readonly maxPoolSize = 10;
+  
+  get(size: number): number | null {
+    const pool = this.pools.get(size);
+    return pool?.pop() ?? null;
+  }
+  
+  put(size: number, ptr: number): void {
+    if (!this.pools.has(size)) {
+      this.pools.set(size, []);
+    }
+    const pool = this.pools.get(size)!;
+    if (pool.length < this.maxPoolSize) {
+      pool.push(ptr);
+    } else {
+      // Pool is full, deallocate
+      dealloc(ptr, size);
+    }
+  }
+  
+  clear(): void {
+    for (const [size, ptrs] of this.pools) {
+      for (const ptr of ptrs) {
+        dealloc(ptr, size);
+      }
+    }
+    this.pools.clear();
+  }
+}
+
+const bufferPool = new BufferPool();
+
 async function initWasm() {
   if (!wasmInitialized) {
     const wasmExports = await init();
@@ -40,6 +87,9 @@ ctx.onmessage = async function (e) {
     });
     return;
   }
+
+  // Start performance tracking
+  currentMetrics = { startTime: performance.now() };
 
   const emitProgress = (progress: number, message: string) => {
     ctx.postMessage({
@@ -163,7 +213,21 @@ ctx.onmessage = async function (e) {
         }
       }
 
-      ctx.postMessage({ requestId, type: "compare-complete", data: results });
+      // Calculate performance metrics
+      if (currentMetrics) {
+        currentMetrics.totalTime = performance.now() - currentMetrics.startTime;
+        currentMetrics.memoryUsed = (wasmMemory?.buffer.byteLength ?? 0) / 1024 / 1024; // MB
+      }
+
+      // Post results with performance metrics
+      // Note: Results are already decoded, so we use structured clone
+      // Future optimization: Use transferable ArrayBuffer for raw binary data
+      ctx.postMessage({ 
+        requestId, 
+        type: "compare-complete", 
+        data: results,
+        metrics: currentMetrics 
+      });
     } else if (type === "init-differ") {
       const {
         sourceRaw,
@@ -229,10 +293,33 @@ ctx.onmessage = async function (e) {
       });
     }
   } catch (error: any) {
+    // Enhanced error logging with context
+    const errorContext = {
+      message: error.message,
+      stack: error.stack,
+      type: type,
+      timestamp: new Date().toISOString(),
+      metrics: currentMetrics,
+      wasmMemorySize: wasmMemory?.buffer.byteLength,
+    };
+    
+    console.error('[CSV Worker Error]', errorContext);
+    
     ctx.postMessage({
       requestId,
       type: "error",
-      data: { message: error.message, stack: error.stack },
+      data: errorContext,
     });
+  } finally {
+    // Reset metrics for next operation
+    currentMetrics = null;
   }
 };
+
+// Cleanup on worker termination
+ctx.addEventListener('close', () => {
+  bufferPool.clear();
+  if (differ) {
+    differ.free();
+  }
+});

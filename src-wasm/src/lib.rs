@@ -2,6 +2,7 @@ mod types;
 mod utils;
 mod core;
 mod binary;
+mod profiling;
 
 #[cfg(test)]
 mod test_data;
