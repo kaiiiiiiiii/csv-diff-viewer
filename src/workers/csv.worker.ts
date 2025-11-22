@@ -2,16 +2,76 @@ import init, {
   CsvDiffer,
   diff_csv,
   diff_csv_primary_key,
+  diff_csv_binary,
+  diff_csv_primary_key_binary,
+  get_binary_result_length,
+  dealloc,
   parse_csv,
 } from "../../src-wasm/pkg/csv_diff_wasm";
+import { decodeBinaryResult } from "../lib/binary-decoder";
 
 const ctx: Worker = self as any;
 let wasmInitialized = false;
 let differ: CsvDiffer | null = null;
+let wasmMemory: WebAssembly.Memory | null = null;
+
+// Configuration flag to enable binary encoding (can be controlled by the caller)
+// Set to true for maximum performance, false for easier debugging
+const USE_BINARY_ENCODING = true;
+
+// Performance monitoring and profiling
+interface PerformanceMetrics {
+  startTime: number;
+  parseTime?: number;
+  diffTime?: number;
+  serializeTime?: number;
+  totalTime?: number;
+  memoryUsed?: number;
+}
+
+let currentMetrics: PerformanceMetrics | null = null;
+
+// Buffer pool for WASM allocations to reduce malloc/free overhead
+class BufferPool {
+  private pools: Map<number, number[]> = new Map();
+  private readonly maxPoolSize = 10;
+  
+  get(size: number): number | null {
+    const pool = this.pools.get(size);
+    return pool?.pop() ?? null;
+  }
+  
+  put(size: number, ptr: number): void {
+    if (!this.pools.has(size)) {
+      this.pools.set(size, []);
+    }
+    const pool = this.pools.get(size)!;
+    if (pool.length < this.maxPoolSize) {
+      pool.push(ptr);
+    } else {
+      // Pool is full, deallocate
+      dealloc(ptr, size);
+    }
+  }
+  
+  clear(): void {
+    for (const [size, ptrs] of this.pools) {
+      for (const ptr of ptrs) {
+        dealloc(ptr, size);
+      }
+    }
+    this.pools.clear();
+  }
+}
+
+const bufferPool = new BufferPool();
 
 async function initWasm() {
   if (!wasmInitialized) {
-    await init();
+    const wasmExports = await init();
+    // Access memory from the initialized WASM module
+    // The init() function returns the wasm exports which includes memory
+    wasmMemory = wasmExports.memory;
     wasmInitialized = true;
   }
 }
@@ -27,6 +87,9 @@ ctx.onmessage = async function (e) {
     });
     return;
   }
+
+  // Start performance tracking
+  currentMetrics = { startTime: performance.now() };
 
   const emitProgress = (progress: number, message: string) => {
     ctx.postMessage({
@@ -68,36 +131,103 @@ ctx.onmessage = async function (e) {
       }
 
       let results;
-      if (comparisonMode === "primary-key") {
-        emitProgress(0, "Starting comparison (Primary Key)...");
-        results = diff_csv_primary_key(
-          sourceRaw,
-          targetRaw,
-          keyColumns,
-          caseSensitive,
-          ignoreWhitespace,
-          ignoreEmptyVsNull,
-          excludedColumns,
-          hasHeaders !== false,
-          (percent: number, message: string) => emitProgress(percent, message),
-        );
-        emitProgress(100, "Comparison complete");
+      if (USE_BINARY_ENCODING) {
+        // Use high-performance binary encoding
+        if (comparisonMode === "primary-key") {
+          emitProgress(0, "Starting comparison (Primary Key, Binary)...");
+          const resultPtr = diff_csv_primary_key_binary(
+            sourceRaw,
+            targetRaw,
+            keyColumns,
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            excludedColumns,
+            hasHeaders !== false,
+            (percent: number, message: string) => emitProgress(percent, message),
+          );
+          
+          // Decode binary result
+          const resultLength = get_binary_result_length();
+          if (!wasmMemory) {
+            throw new Error("WASM memory not initialized");
+          }
+          results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
+          
+          // Clean up WASM memory
+          dealloc(resultPtr, resultLength);
+          emitProgress(100, "Comparison complete");
+        } else {
+          emitProgress(0, "Starting comparison (Content Match, Binary)...");
+          const resultPtr = diff_csv_binary(
+            sourceRaw,
+            targetRaw,
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            excludedColumns,
+            hasHeaders !== false,
+            (percent: number, message: string) => emitProgress(percent, message),
+          );
+          
+          // Decode binary result
+          const resultLength = get_binary_result_length();
+          if (!wasmMemory) {
+            throw new Error("WASM memory not initialized");
+          }
+          results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
+          
+          // Clean up WASM memory
+          dealloc(resultPtr, resultLength);
+          emitProgress(100, "Comparison complete");
+        }
       } else {
-        emitProgress(0, "Starting comparison (Content Match)...");
-        results = diff_csv(
-          sourceRaw,
-          targetRaw,
-          caseSensitive,
-          ignoreWhitespace,
-          ignoreEmptyVsNull,
-          excludedColumns,
-          hasHeaders !== false,
-          (percent: number, message: string) => emitProgress(percent, message),
-        );
-        emitProgress(100, "Comparison complete");
+        // Use traditional JSON encoding (for debugging or compatibility)
+        if (comparisonMode === "primary-key") {
+          emitProgress(0, "Starting comparison (Primary Key)...");
+          results = diff_csv_primary_key(
+            sourceRaw,
+            targetRaw,
+            keyColumns,
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            excludedColumns,
+            hasHeaders !== false,
+            (percent: number, message: string) => emitProgress(percent, message),
+          );
+          emitProgress(100, "Comparison complete");
+        } else {
+          emitProgress(0, "Starting comparison (Content Match)...");
+          results = diff_csv(
+            sourceRaw,
+            targetRaw,
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            excludedColumns,
+            hasHeaders !== false,
+            (percent: number, message: string) => emitProgress(percent, message),
+          );
+          emitProgress(100, "Comparison complete");
+        }
       }
 
-      ctx.postMessage({ requestId, type: "compare-complete", data: results });
+      // Calculate performance metrics
+      if (currentMetrics) {
+        currentMetrics.totalTime = performance.now() - currentMetrics.startTime;
+        currentMetrics.memoryUsed = (wasmMemory?.buffer.byteLength ?? 0) / 1024 / 1024; // MB
+      }
+
+      // Post results with performance metrics
+      // Note: Results are already decoded, so we use structured clone
+      // Future optimization: Use transferable ArrayBuffer for raw binary data
+      ctx.postMessage({ 
+        requestId, 
+        type: "compare-complete", 
+        data: results,
+        metrics: currentMetrics 
+      });
     } else if (type === "init-differ") {
       const {
         sourceRaw,
@@ -163,10 +293,33 @@ ctx.onmessage = async function (e) {
       });
     }
   } catch (error: any) {
+    // Enhanced error logging with context
+    const errorContext = {
+      message: error.message,
+      stack: error.stack,
+      type: type,
+      timestamp: new Date().toISOString(),
+      metrics: currentMetrics,
+      wasmMemorySize: wasmMemory?.buffer.byteLength,
+    };
+    
+    console.error('[CSV Worker Error]', errorContext);
+    
     ctx.postMessage({
       requestId,
       type: "error",
-      data: { message: error.message, stack: error.stack },
+      data: errorContext,
     });
+  } finally {
+    // Reset metrics for next operation
+    currentMetrics = null;
   }
 };
+
+// Cleanup on worker termination
+ctx.addEventListener('close', () => {
+  bufferPool.clear();
+  if (differ) {
+    differ.free();
+  }
+});
