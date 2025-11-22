@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 3000",
-    "build:wasm": "cd src-wasm && wasm-pack build --target web",
+    "build:wasm": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals' wasm-pack build --target web",
     "build": "npm run build:wasm && vite build",
     "serve": "vite preview",
     "lint": "eslint",

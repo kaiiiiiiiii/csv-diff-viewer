@@ -1,18 +1,18 @@
 /**
  * Binary decoder for WASM diff results.
- * 
+ *
  * This module provides zero-copy binary decoding for diff results,
  * eliminating JSON serialization overhead.
- * 
+ *
  * Binary format matches src-wasm/src/binary.rs:
- * 
+ *
  * Header (20 bytes):
  * - total_rows: u32 (4 bytes)
  * - added_count: u32 (4 bytes)
  * - removed_count: u32 (4 bytes)
  * - modified_count: u32 (4 bytes)
  * - unchanged_count: u32 (4 bytes)
- * 
+ *
  * For each row:
  * - row_type: u8 (1 = added, 2 = removed, 3 = modified, 4 = unchanged)
  * - key_len: u32
@@ -79,8 +79,13 @@ export class BinaryDecoder {
   private textDecoder: TextDecoder;
 
   constructor(buffer: ArrayBuffer | Uint8Array) {
-    this.buffer = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-    this.view = new DataView(this.buffer.buffer, this.buffer.byteOffset, this.buffer.byteLength);
+    this.buffer =
+      buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    this.view = new DataView(
+      this.buffer.buffer,
+      this.buffer.byteOffset,
+      this.buffer.byteLength,
+    );
     this.position = 0;
     this.textDecoder = new TextDecoder();
   }
@@ -125,7 +130,7 @@ export class BinaryDecoder {
       const key = this.readString();
       const sourceRow = this.readRowData();
       const targetRow = this.readRowData();
-      
+
       const diffCount = this.readU32();
       const differences: Difference[] = [];
       for (let j = 0; j < diffCount; j++) {
@@ -134,7 +139,7 @@ export class BinaryDecoder {
         const newValue = this.readString();
         differences.push({ column, oldValue, newValue });
       }
-      
+
       result.modified.push({ key, sourceRow, targetRow, differences });
     }
 
@@ -154,7 +159,9 @@ export class BinaryDecoder {
    */
   private readU8(): number {
     if (this.position >= this.buffer.length) {
-      throw new Error(`Buffer overflow: attempted to read at position ${this.position}, buffer length ${this.buffer.length}`);
+      throw new Error(
+        `Buffer overflow: attempted to read at position ${this.position}, buffer length ${this.buffer.length}`,
+      );
     }
     const value = this.buffer[this.position];
     this.position += 1;
@@ -166,7 +173,9 @@ export class BinaryDecoder {
    */
   private readU32(): number {
     if (this.position + 4 > this.buffer.length) {
-      throw new Error(`Buffer overflow: attempted to read u32 at position ${this.position}, buffer length ${this.buffer.length}`);
+      throw new Error(
+        `Buffer overflow: attempted to read u32 at position ${this.position}, buffer length ${this.buffer.length}`,
+      );
     }
     const value = this.view.getUint32(this.position, true); // true = little-endian
     this.position += 4;
@@ -179,7 +188,9 @@ export class BinaryDecoder {
   private readString(): string {
     const length = this.readU32();
     if (this.position + length > this.buffer.length) {
-      throw new Error(`Buffer overflow: attempted to read ${length} bytes at position ${this.position}, buffer length ${this.buffer.length}`);
+      throw new Error(
+        `Buffer overflow: attempted to read ${length} bytes at position ${this.position}, buffer length ${this.buffer.length}`,
+      );
     }
     const bytes = this.buffer.subarray(this.position, this.position + length);
     this.position += length;
@@ -203,7 +214,7 @@ export class BinaryDecoder {
 
 /**
  * Decode binary diff result from WASM memory.
- * 
+ *
  * @param wasmMemory - The WASM module's memory buffer
  * @param ptr - Pointer to the binary data
  * @param length - Length of the binary data
@@ -212,7 +223,7 @@ export class BinaryDecoder {
 export function decodeBinaryResult(
   wasmMemory: WebAssembly.Memory,
   ptr: number,
-  length: number
+  length: number,
 ): DiffResult {
   const buffer = new Uint8Array(wasmMemory.buffer, ptr, length);
   const decoder = new BinaryDecoder(buffer);
