@@ -390,8 +390,9 @@ pub fn diff_csv_primary_key_parallel(
         let _ = on_progress.call2(&this, &JsValue::from_f64(progress), &JsValue::from_str(message));
     };
     
-    // Use the existing diff function which will leverage rayon internally
-    // We can add a parallel-specific implementation later if needed
+    // TODO: Implement dedicated parallel version using parallel::parallel_compare_rows
+    // Currently uses existing implementation for compatibility
+    // Future enhancement: Use rayon-specific optimizations for row comparison
     let result = core::diff_csv_primary_key_internal(
         source_csv,
         target_csv,

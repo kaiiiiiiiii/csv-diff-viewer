@@ -1,6 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 
+// Type guard for performance.memory API (Chrome-specific)
+interface PerformanceMemory {
+  usedJSHeapSize: number;
+  totalJSHeapSize: number;
+  jsHeapSizeLimit: number;
+}
+
+interface PerformanceWithMemory extends Performance {
+  memory?: PerformanceMemory;
+}
+
 interface PerformanceMetrics {
   startTime: number;
   parseTime?: number;
@@ -40,8 +51,9 @@ export const PerformanceDashboard: React.FC = () => {
     if (!isVisible) return;
 
     const updateMemory = () => {
-      if ("memory" in performance) {
-        const mem = (performance as any).memory;
+      const perfWithMemory = performance as PerformanceWithMemory;
+      if (perfWithMemory.memory) {
+        const mem = perfWithMemory.memory;
         setMemoryInfo({
           used: mem.usedJSHeapSize / 1024 / 1024,
           total: mem.totalJSHeapSize / 1024 / 1024,

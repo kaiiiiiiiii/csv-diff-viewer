@@ -23,6 +23,11 @@ const USE_BINARY_ENCODING = true; // Enable binary encoding for faster data tran
 const USE_PARALLEL_PROCESSING = true; // Enable multi-threaded processing with rayon
 const USE_TRANSFERABLES = true; // Enable transferable ArrayBuffers for zero-copy transfer
 
+// Thread pool configuration
+const DEFAULT_THREAD_COUNT = 4; // Fallback if hardwareConcurrency unavailable
+const RESERVED_THREADS = 1; // Reserve threads for main thread and UI
+const MAX_TRANSFERABLE_DEPTH = 10; // Limit recursion depth for transferable extraction
+
 // Performance monitoring and profiling
 interface PerformanceMetrics {
   startTime: number;
@@ -81,9 +86,13 @@ async function initWasm() {
     // Initialize parallel processing if enabled
     if (USE_PARALLEL_PROCESSING) {
       try {
-        // Use hardware concurrency if available, otherwise default to 4 threads
-        const numThreads = (navigator.hardwareConcurrency || 4) - 1; // Reserve 1 for main thread
-        init_parallel_processing(Math.max(1, numThreads));
+        // Use hardware concurrency if available, otherwise use default
+        const numThreads = Math.max(
+          1,
+          (navigator.hardwareConcurrency || DEFAULT_THREAD_COUNT) -
+            RESERVED_THREADS,
+        );
+        init_parallel_processing(numThreads);
         console.log(
           `[CSV Worker] Initialized parallel processing with ${numThreads} threads`,
         );
@@ -290,13 +299,23 @@ ctx.onmessage = async function (e) {
       const transferables: Transferable[] = [];
 
       // Extract any ArrayBuffer objects from the results for zero-copy transfer
-      const extractTransferables = (obj: any): void => {
+      // Use depth limiting and circular reference detection to prevent stack overflow
+      const seen = new WeakSet();
+      const extractTransferables = (obj: any, depth = 0): void => {
+        if (depth > MAX_TRANSFERABLE_DEPTH) return;
+
         if (obj instanceof ArrayBuffer) {
           transferables.push(obj);
         } else if (ArrayBuffer.isView(obj)) {
           transferables.push(obj.buffer);
         } else if (obj && typeof obj === "object") {
-          Object.values(obj).forEach(extractTransferables);
+          // Skip if we've seen this object (circular reference)
+          if (seen.has(obj)) return;
+          seen.add(obj);
+
+          Object.values(obj).forEach((val) =>
+            extractTransferables(val, depth + 1),
+          );
         }
       };
 

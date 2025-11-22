@@ -17,6 +17,11 @@ pub fn init_thread_pool(num_threads: usize) {
 
 /// Parallel comparison of target rows against source map
 /// This is the most compute-intensive part of the diff operation
+///
+/// # Performance Trade-offs
+/// Character-level diffs are intentionally skipped in parallel mode for performance.
+/// The `diff` field in `Difference` will be empty. If character-level diffs are required,
+/// use the non-parallel comparison functions or post-process the results.
 #[allow(clippy::too_many_arguments)]
 pub fn parallel_compare_rows(
     target_map: &AHashMap<String, usize>,

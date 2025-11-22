@@ -69,11 +69,15 @@ impl StreamingCsvReader {
     /// Read next chunk of records
     pub fn next_chunk(&mut self, reader: &mut csv::Reader<&[u8]>) -> Result<Vec<StringRecord>, Box<dyn std::error::Error>> {
         let mut chunk = Vec::with_capacity(self.chunk_size);
+        let start_row = chunk.len();
         
-        for _ in 0..self.chunk_size {
+        for i in 0..self.chunk_size {
             match reader.records().next() {
                 Some(Ok(record)) => chunk.push(record),
-                Some(Err(e)) => return Err(e.into()),
+                Some(Err(e)) => {
+                    let row_num = start_row + i + 1;
+                    return Err(format!("CSV parsing error at row {}: {}", row_num, e).into());
+                },
                 None => break,
             }
         }
