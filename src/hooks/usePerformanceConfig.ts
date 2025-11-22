@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import type { PerformanceConfig } from "@/lib/performance-config";
 import {
-  type PerformanceConfig,
+  PERFORMANCE_PROFILES,
   getPerformanceConfig,
   savePerformanceConfig,
-  PERFORMANCE_PROFILES,
 } from "@/lib/performance-config";
 
 /**

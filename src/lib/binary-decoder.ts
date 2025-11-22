@@ -21,20 +21,20 @@
  */
 
 export interface DiffResult {
-  added: AddedRow[];
-  removed: RemovedRow[];
-  modified: ModifiedRow[];
-  unchanged: UnchangedRow[];
+  added: Array<AddedRow>;
+  removed: Array<RemovedRow>;
+  modified: Array<ModifiedRow>;
+  unchanged: Array<UnchangedRow>;
   source?: DatasetMetadata;
   target?: DatasetMetadata;
-  keyColumns?: string[];
-  excludedColumns?: string[];
+  keyColumns?: Array<string>;
+  excludedColumns?: Array<string>;
   mode?: string;
 }
 
 export interface DatasetMetadata {
-  headers: string[];
-  rows: Record<string, string>[];
+  headers: Array<string>;
+  rows: Array<Record<string, string>>;
 }
 
 export interface AddedRow {
@@ -51,7 +51,7 @@ export interface ModifiedRow {
   key: string;
   sourceRow: Record<string, string>;
   targetRow: Record<string, string>;
-  differences: Difference[];
+  differences: Array<Difference>;
 }
 
 export interface UnchangedRow {
@@ -63,7 +63,7 @@ export interface Difference {
   column: string;
   oldValue: string;
   newValue: string;
-  diff?: DiffChange[];
+  diff?: Array<DiffChange>;
 }
 
 export interface DiffChange {
@@ -132,7 +132,7 @@ export class BinaryDecoder {
       const targetRow = this.readRowData();
 
       const diffCount = this.readU32();
-      const differences: Difference[] = [];
+      const differences: Array<Difference> = [];
       for (let j = 0; j < diffCount; j++) {
         const column = this.readString();
         const oldValue = this.readString();

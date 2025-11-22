@@ -1,22 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  flexRender,
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import {
-  ArrowUpDown,
-  Columns3,
-  Expand,
-  Filter,
-  Maximize2,
-  Minimize2,
-  Shrink,
-  X,
-} from "lucide-react";
+import { ArrowUpDown } from "lucide-react";
 import FullScreen from "react-fullscreen-crossbrowser";
 import type {
   ColumnDef,
@@ -24,31 +13,25 @@ import type {
   SortingState,
   VisibilityState,
 } from "@tanstack/react-table";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  AdvancedSearchInput,
   createAdvancedFilterFn,
   parseSearchQuery,
 } from "@/components/AdvancedSearchInput";
+import HeaderControls from "@/components/DiffTable/HeaderControls";
+import VirtualTable from "@/components/DiffTable/VirtualTable";
+import {
+  TypeBadgeCell,
+  createDiffCellRenderer,
+} from "@/components/DiffTable/CellRenderers";
 
 interface DiffResult {
-  added?: Array<any>;
-  removed?: Array<any>;
-  modified?: Array<any>;
-  unchanged?: Array<any>;
-  source?: { headers?: Array<string> };
-  target?: { headers?: Array<string> };
+  added: Array<any>;
+  removed: Array<any>;
+  modified: Array<any>;
+  unchanged: Array<any>;
+  source: { headers: Array<string> };
+  target: { headers: Array<string> };
 }
 
 interface DiffTableProps {
@@ -103,25 +86,23 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
   // 1. Prepare Data
   const data = useMemo(() => {
     const allRows: Array<DiffRow> = [];
-    const modifiedRows = results.modified ?? [];
-    const addedRows = results.added ?? [];
-    const removedRows = results.removed ?? [];
-    const unchangedRows = results.unchanged ?? [];
 
-    allRows.push(...modifiedRows.map((r) => ({ ...r, type: "modified" })));
-    allRows.push(...addedRows.map((r) => ({ ...r, type: "added" })));
-    allRows.push(...removedRows.map((r) => ({ ...r, type: "removed" })));
+    allRows.push(...results.modified.map((r) => ({ ...r, type: "modified" })));
+    allRows.push(...results.added.map((r) => ({ ...r, type: "added" })));
+    allRows.push(...results.removed.map((r) => ({ ...r, type: "removed" })));
 
     if (!showOnlyDiffs) {
-      allRows.push(...unchangedRows.map((r) => ({ ...r, type: "unchanged" })));
+      allRows.push(
+        ...results.unchanged.map((r) => ({ ...r, type: "unchanged" })),
+      );
     }
     return allRows;
   }, [results, showOnlyDiffs]);
 
   // 2. Define Columns
   const availableColumns = useMemo(() => {
-    const sourceHeaders = results.source?.headers ?? [];
-    const targetHeaders = results.target?.headers ?? [];
+    const sourceHeaders = results.source.headers;
+    const targetHeaders = results.target.headers;
 
     // Create a union of headers while preserving order as much as possible
     const headerSet = new Set(targetHeaders);
@@ -133,11 +114,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
       }
     });
 
-    if (combinedHeaders.length > 0) {
-      return combinedHeaders;
-    }
-
-    return sourceHeaders.length > 0 ? sourceHeaders : targetHeaders;
+    return combinedHeaders.length > 0 ? combinedHeaders : sourceHeaders;
   }, [results]);
 
   const columns = useMemo<Array<ColumnDef<DiffRow>>>(() => {
@@ -169,68 +146,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
             </div>
           );
         },
-        cell: (info) => {
-          const row = info.row.original;
-          const value = info.getValue() as string | null | undefined;
-
-          if (row.type === "modified") {
-            const diff = row.differences?.find((d: any) => d.column === header);
-            if (diff) {
-              // Use enhanced diff from WASM if available
-              if (diff.diff && Array.isArray(diff.diff)) {
-                return (
-                  <div className="flex flex-col gap-1 text-xs">
-                    <div className="flex flex-wrap gap-1">
-                      {diff.diff.map((change: any, idx: number) => (
-                        <span
-                          key={idx}
-                          className={cn(
-                            change.added &&
-                              "bg-green-200 text-green-800 px-1 rounded",
-                            change.removed &&
-                              "bg-red-200 text-red-800 px-1 rounded line-through",
-                            !change.added && !change.removed && "text-gray-600",
-                          )}
-                        >
-                          {change.value}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                );
-              }
-
-              // Fallback to simple display
-              return (
-                <div className="flex flex-col gap-1 text-xs">
-                  <span className="line-through text-red-500 opacity-70">
-                    {diff.oldValue}
-                  </span>
-                  <span className="text-green-600 font-medium">
-                    {diff.newValue}
-                  </span>
-                </div>
-              );
-            }
-          }
-
-          // Debug logging for modified rows with missing values
-          if (
-            row.type === "modified" &&
-            (value === undefined || value === null || value === "")
-          ) {
-            // console.log('Missing value for modified row:', { header, row, value });
-          }
-
-          return (
-            <span
-              className="whitespace-nowrap max-w-[300px] overflow-hidden text-ellipsis block"
-              title={String(value)}
-            >
-              {String(value ?? "")}
-            </span>
-          );
-        },
+        cell: createDiffCellRenderer(header),
       }),
     );
 
@@ -243,28 +159,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
         enableColumnFilter: true,
         enableHiding: true,
         filterFn: "equalsString",
-        cell: (info) => (
-          <Badge
-            variant={
-              info.getValue() === "added"
-                ? "default"
-                : info.getValue() === "removed"
-                  ? "default"
-                  : info.getValue() === "modified"
-                    ? "secondary"
-                    : "outline"
-            }
-            className={cn(
-              info.getValue() === "added" && "bg-green-500 hover:bg-green-600",
-              info.getValue() === "removed" &&
-                "bg-red-500 hover:bg-red-600 text-white",
-              info.getValue() === "modified" &&
-                "bg-yellow-500 hover:bg-yellow-600 text-white",
-            )}
-          >
-            {info.getValue() as string}
-          </Badge>
-        ),
+        cell: TypeBadgeCell,
       },
       ...dynamicCols,
     ];
@@ -312,22 +207,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
     return rows.filter((row) => row.original.type === activeFilter);
   }, [rows, activeFilter]);
 
-  // 4. Initialize Virtualizer
-  const rowVirtualizer = useVirtualizer({
-    count: filteredRows.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 50,
-    overscan: 20,
-  });
-
-  const virtualItems = rowVirtualizer.getVirtualItems();
-  const totalSize = rowVirtualizer.getTotalSize();
-
-  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
-  const paddingBottom =
-    virtualItems.length > 0
-      ? totalSize - virtualItems[virtualItems.length - 1].end
-      : 0;
+  // 4. NOTE: Virtualization, headers and cell rendering are handled by subcomponents
 
   return (
     <FullScreen enabled={isFullscreen} onChange={setIsFullscreen}>
@@ -340,272 +220,29 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
           isFullscreen && "h-screen w-screen overflow-auto p-8",
         )}
       >
-        <div className="flex items-center py-2 gap-2">
-          <AdvancedSearchInput
-            placeholder='Advanced search (try: term1 OR term2, -exclude, "exact phrase", column:value)...'
-            value={globalFilter}
-            onChange={setGlobalFilter}
-            className="flex-1 max-w-2xl"
-          />
+        <HeaderControls
+          globalFilter={globalFilter}
+          setGlobalFilter={setGlobalFilter}
+          activeFilter={activeFilter}
+          setActiveFilter={setActiveFilter}
+          counts={counts}
+          showColumnFilters={showColumnFilters}
+          setShowColumnFilters={setShowColumnFilters}
+          columns={table.getAllColumns()}
+          filteredRowsLength={filteredRows.length}
+          isExpanded={isExpanded}
+          setIsExpanded={setIsExpanded}
+          isFullscreen={isFullscreen}
+          setIsFullscreen={setIsFullscreen}
+        />
 
-          <div className="flex items-center gap-2 ml-2">
-            <Badge
-              variant={activeFilter === "all" ? "default" : "outline"}
-              className="cursor-pointer hover:bg-primary/80"
-              onClick={() => setActiveFilter("all")}
-            >
-              All
-            </Badge>
-            <Badge
-              variant={activeFilter === "added" ? "default" : "outline"}
-              className={cn(
-                "cursor-pointer transition-colors",
-                activeFilter === "added"
-                  ? "bg-green-500 hover:bg-green-600"
-                  : "hover:bg-green-100 hover:text-green-800 hover:border-green-200",
-                counts.added === 0 &&
-                  "opacity-50 cursor-not-allowed hover:bg-transparent hover:text-foreground hover:border-border",
-              )}
-              onClick={() => counts.added > 0 && setActiveFilter("added")}
-            >
-              Added ({counts.added})
-            </Badge>
-            <Badge
-              variant={activeFilter === "removed" ? "default" : "outline"}
-              className={cn(
-                "cursor-pointer transition-colors",
-                activeFilter === "removed"
-                  ? "bg-red-500 hover:bg-red-600 text-white"
-                  : "hover:bg-red-100 hover:text-red-800 hover:border-red-200",
-                counts.removed === 0 &&
-                  "opacity-50 cursor-not-allowed hover:bg-transparent hover:text-foreground hover:border-border",
-              )}
-              onClick={() => counts.removed > 0 && setActiveFilter("removed")}
-            >
-              Removed ({counts.removed})
-            </Badge>
-            <Badge
-              variant={activeFilter === "modified" ? "default" : "outline"}
-              className={cn(
-                "cursor-pointer transition-colors",
-                activeFilter === "modified"
-                  ? "bg-yellow-500 hover:bg-yellow-600 text-white"
-                  : "hover:bg-yellow-100 hover:text-yellow-800 hover:border-yellow-200",
-                counts.modified === 0 &&
-                  "opacity-50 cursor-not-allowed hover:bg-transparent hover:text-foreground hover:border-border",
-              )}
-              onClick={() => counts.modified > 0 && setActiveFilter("modified")}
-            >
-              Modified ({counts.modified})
-            </Badge>
-          </div>
-
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-sm text-muted-foreground mr-2">
-              {filteredRows.length} rows found
-            </span>
-
-            <div className="flex items-center border rounded-md bg-background">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowColumnFilters(!showColumnFilters)}
-                className="h-8"
-              >
-                <Filter className="h-4 w-4" />
-              </Button>
-              <div className="w-[1px] h-4 bg-border" />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8">
-                    <Columns3 className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-[200px]">
-                  <DropdownMenuLabel>Toggle Columns</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {table
-                    .getAllColumns()
-                    .filter((column) => column.getCanHide())
-                    .map((column) => {
-                      return (
-                        <DropdownMenuCheckboxItem
-                          key={column.id}
-                          className="capitalize"
-                          checked={column.getIsVisible()}
-                          onCheckedChange={(value) =>
-                            column.toggleVisibility(!!value)
-                          }
-                        >
-                          {column.id.startsWith("__diff_type__")
-                            ? "Type"
-                            : column.id.replace(/_\d+$/, "")}
-                        </DropdownMenuCheckboxItem>
-                      );
-                    })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            <div className="items-center border rounded-md bg-background hidden md:flex">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setIsExpanded(!isExpanded)}
-                disabled={isFullscreen}
-                title={isExpanded ? "Collapse width" : "Expand width"}
-              >
-                {isExpanded ? (
-                  <Shrink className="h-4 w-4" />
-                ) : (
-                  <Expand className="h-4 w-4" />
-                )}
-              </Button>
-              <div className="w-[1px] h-4 bg-border" />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setIsFullscreen(!isFullscreen)}
-                title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-              >
-                {isFullscreen ? (
-                  <Minimize2 className="h-4 w-4" />
-                ) : (
-                  <Maximize2 className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-md border bg-background">
-          {/* Scroll Container */}
-          <div
-            ref={parentRef}
-            className={cn(
-              "overflow-auto w-full",
-              isFullscreen ? "h-[calc(100vh-120px)]" : "h-[600px]",
-            )}
-          >
-            <table className="w-full caption-bottom text-sm text-left">
-              <thead className="sticky top-0 z-10 bg-background shadow-sm">
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <tr
-                    key={headerGroup.id}
-                    className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted"
-                  >
-                    {headerGroup.headers.map((header) => (
-                      <th
-                        key={header.id}
-                        className="h-12 px-4 text-left align-middle font-medium text-muted-foreground bg-background"
-                        style={{ width: header.getSize() }}
-                      >
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(
-                              header.column.columnDef.header,
-                              header.getContext(),
-                            )}
-                      </th>
-                    ))}
-                  </tr>
-                ))}
-                {showColumnFilters && (
-                  <tr className="border-b bg-muted/30">
-                    {table.getAllLeafColumns().map((column) => {
-                      if (!column.getIsVisible()) return null;
-                      return (
-                        <th
-                          key={column.id}
-                          className="px-2 py-2"
-                          style={{ width: column.getSize() }}
-                        >
-                          {column.getCanFilter() ? (
-                            <div className="flex items-center gap-1">
-                              <Input
-                                placeholder={`Filter...`}
-                                value={
-                                  (column.getFilterValue() as
-                                    | string
-                                    | undefined) ?? ""
-                                }
-                                onChange={(e) =>
-                                  column.setFilterValue(e.target.value)
-                                }
-                                className="h-8 text-xs"
-                              />
-                              {!!column.getFilterValue() && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 shrink-0"
-                                  onClick={() =>
-                                    column.setFilterValue(undefined)
-                                  }
-                                >
-                                  <X className="h-3 w-3" />
-                                </Button>
-                              )}
-                            </div>
-                          ) : null}
-                        </th>
-                      );
-                    })}
-                  </tr>
-                )}
-              </thead>
-              <tbody>
-                {paddingTop > 0 && (
-                  <tr>
-                    <td style={{ height: `${paddingTop}px` }} />
-                  </tr>
-                )}
-                {virtualItems.map((virtualRow) => {
-                  const row = filteredRows[virtualRow.index];
-                  const rowType = row.original.type;
-
-                  return (
-                    <tr
-                      key={row.id}
-                      data-index={virtualRow.index}
-                      ref={rowVirtualizer.measureElement}
-                      data-state={row.getIsSelected() && "selected"}
-                      className={cn(
-                        "border-b transition-colors hover:bg-muted/50",
-                        rowType === "added" &&
-                          "bg-green-50 hover:bg-green-100 dark:bg-green-900/20",
-                        rowType === "removed" &&
-                          "bg-red-50 hover:bg-red-100 dark:bg-red-900/20",
-                        rowType === "modified" &&
-                          "bg-yellow-50 hover:bg-yellow-100 dark:bg-yellow-900/20",
-                      )}
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <td
-                          key={cell.id}
-                          className="p-4 align-middle"
-                          style={{ width: cell.column.getSize() }}
-                        >
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext(),
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-                {paddingBottom > 0 && (
-                  <tr>
-                    <td style={{ height: `${paddingBottom}px` }} />
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <VirtualTable
+          table={table}
+          filteredRows={filteredRows}
+          parentRef={parentRef}
+          showColumnFilters={showColumnFilters}
+          isFullscreen={isFullscreen}
+        />
       </div>
     </FullScreen>
   );

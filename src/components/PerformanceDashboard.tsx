@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 
 // Type guard for performance.memory API (Chrome-specific)
@@ -32,7 +32,7 @@ interface OperationLog {
 }
 
 export const PerformanceDashboard: React.FC = () => {
-  const [operations, setOperations] = useState<OperationLog[]>([]);
+  const [operations, setOperations] = useState<Array<OperationLog>>([]);
   const [memoryInfo, setMemoryInfo] = useState<{
     used: number;
     total: number;
