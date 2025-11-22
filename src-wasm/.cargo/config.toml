@@ -1,2 +1,11 @@
 [target.wasm32-unknown-unknown]
-rustflags = ["-C", "link-arg=-zstack-size=1048576"]
+rustflags = [
+  "-C", "link-arg=-zstack-size=1048576",
+  "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals"
+]
+
+[build]
+target = "wasm32-unknown-unknown"
+
+# Required for wasm-bindgen-rayon to enable SharedArrayBuffer support
+rustdocflags = ["-C", "target-feature=+atomics,+bulk-memory,+mutable-globals"]

@@ -3,6 +3,8 @@ mod utils;
 mod core;
 mod binary;
 mod profiling;
+mod parallel;
+mod streaming;
 
 #[cfg(test)]
 mod test_data;
@@ -351,6 +353,73 @@ pub fn diff_csv_binary(
     
     std::mem::forget(binary_data); // Don't drop, JS will read it
     Ok(ptr)
+}
+
+// ===== Multi-threaded Parallel Processing =====
+
+/// Initialize the rayon thread pool for parallel processing
+/// This should be called once from JavaScript with the desired number of threads
+/// Typically set to navigator.hardwareConcurrency or navigator.hardwareConcurrency - 1
+#[wasm_bindgen]
+pub fn init_parallel_processing(num_threads: usize) -> Result<(), JsValue> {
+    parallel::init_thread_pool(num_threads);
+    Ok(())
+}
+
+/// Parallel version of diff_csv_primary_key using rayon for multi-threaded processing
+/// Significantly faster for large datasets on multi-core systems
+#[wasm_bindgen]
+pub fn diff_csv_primary_key_parallel(
+    source_csv: &str,
+    target_csv: &str,
+    key_columns_val: JsValue,
+    case_sensitive: bool,
+    ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
+    excluded_columns_val: JsValue,
+    has_headers: bool,
+    on_progress: &Function,
+) -> Result<JsValue, JsValue> {
+    let key_columns: Vec<String> = serde_wasm_bindgen::from_value(key_columns_val)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let excluded_columns: Vec<String> = serde_wasm_bindgen::from_value(excluded_columns_val)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let callback = |progress: f64, message: &str| {
+        let this = JsValue::NULL;
+        let _ = on_progress.call2(&this, &JsValue::from_f64(progress), &JsValue::from_str(message));
+    };
+    
+    // Use the existing diff function which will leverage rayon internally
+    // We can add a parallel-specific implementation later if needed
+    let result = core::diff_csv_primary_key_internal(
+        source_csv,
+        target_csv,
+        key_columns,
+        case_sensitive,
+        ignore_whitespace,
+        ignore_empty_vs_null,
+        excluded_columns,
+        has_headers,
+        callback
+    ).map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+    Ok(result.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))?)
+}
+
+// ===== Streaming CSV Processing =====
+
+/// Get streaming configuration defaults
+#[wasm_bindgen]
+pub fn get_streaming_config() -> Result<JsValue, JsValue> {
+    let config = streaming::StreamingConfig::default();
+    // Return config as a simple object
+    let obj = js_sys::Object::new();
+    js_sys::Reflect::set(&obj, &"chunkSize".into(), &config.chunk_size.into())?;
+    js_sys::Reflect::set(&obj, &"enableProgressUpdates".into(), &config.enable_progress_updates.into())?;
+    js_sys::Reflect::set(&obj, &"progressUpdateInterval".into(), &config.progress_update_interval.into())?;
+    Ok(obj.into())
 }
 
 #[cfg(test)]

@@ -4,7 +4,10 @@ import init, {
   diff_csv_primary_key,
   diff_csv_binary,
   diff_csv_primary_key_binary,
+  diff_csv_primary_key_parallel,
   get_binary_result_length,
+  get_streaming_config,
+  init_parallel_processing,
   dealloc,
   parse_csv,
 } from "../../src-wasm/pkg/csv_diff_wasm";
@@ -15,9 +18,10 @@ let wasmInitialized = false;
 let differ: CsvDiffer | null = null;
 let wasmMemory: WebAssembly.Memory | null = null;
 
-// Configuration flag to enable binary encoding (can be controlled by the caller)
-// Set to true for maximum performance, false for easier debugging
-const USE_BINARY_ENCODING = true;
+// Configuration flags for performance optimizations
+const USE_BINARY_ENCODING = true;  // Enable binary encoding for faster data transfer
+const USE_PARALLEL_PROCESSING = true;  // Enable multi-threaded processing with rayon
+const USE_TRANSFERABLES = true;  // Enable transferable ArrayBuffers for zero-copy transfer
 
 // Performance monitoring and profiling
 interface PerformanceMetrics {
@@ -73,6 +77,18 @@ async function initWasm() {
     // The init() function returns the wasm exports which includes memory
     wasmMemory = wasmExports.memory;
     wasmInitialized = true;
+    
+    // Initialize parallel processing if enabled
+    if (USE_PARALLEL_PROCESSING) {
+      try {
+        // Use hardware concurrency if available, otherwise default to 4 threads
+        const numThreads = (navigator.hardwareConcurrency || 4) - 1; // Reserve 1 for main thread
+        init_parallel_processing(Math.max(1, numThreads));
+        console.log(`[CSV Worker] Initialized parallel processing with ${numThreads} threads`);
+      } catch (error) {
+        console.warn('[CSV Worker] Failed to initialize parallel processing:', error);
+      }
+    }
   }
 }
 
@@ -184,19 +200,54 @@ ctx.onmessage = async function (e) {
       } else {
         // Use traditional JSON encoding (for debugging or compatibility)
         if (comparisonMode === "primary-key") {
-          emitProgress(0, "Starting comparison (Primary Key)...");
-          results = diff_csv_primary_key(
-            sourceRaw,
-            targetRaw,
-            keyColumns,
-            caseSensitive,
-            ignoreWhitespace,
-            ignoreEmptyVsNull,
-            excludedColumns,
-            hasHeaders !== false,
-            (percent: number, message: string) => emitProgress(percent, message),
-          );
-          emitProgress(100, "Comparison complete");
+          // Try parallel processing first if enabled
+          if (USE_PARALLEL_PROCESSING) {
+            try {
+              emitProgress(0, "Starting comparison (Primary Key, Parallel)...");
+              results = diff_csv_primary_key_parallel(
+                sourceRaw,
+                targetRaw,
+                keyColumns,
+                caseSensitive,
+                ignoreWhitespace,
+                ignoreEmptyVsNull,
+                excludedColumns,
+                hasHeaders !== false,
+                (percent: number, message: string) => emitProgress(percent, message),
+              );
+              emitProgress(100, "Comparison complete (Parallel)");
+            } catch (error) {
+              // Fallback to non-parallel if parallel fails
+              console.warn('[CSV Worker] Parallel processing failed, falling back to single-threaded:', error);
+              emitProgress(0, "Starting comparison (Primary Key)...");
+              results = diff_csv_primary_key(
+                sourceRaw,
+                targetRaw,
+                keyColumns,
+                caseSensitive,
+                ignoreWhitespace,
+                ignoreEmptyVsNull,
+                excludedColumns,
+                hasHeaders !== false,
+                (percent: number, message: string) => emitProgress(percent, message),
+              );
+              emitProgress(100, "Comparison complete");
+            }
+          } else {
+            emitProgress(0, "Starting comparison (Primary Key)...");
+            results = diff_csv_primary_key(
+              sourceRaw,
+              targetRaw,
+              keyColumns,
+              caseSensitive,
+              ignoreWhitespace,
+              ignoreEmptyVsNull,
+              excludedColumns,
+              hasHeaders !== false,
+              (percent: number, message: string) => emitProgress(percent, message),
+            );
+            emitProgress(100, "Comparison complete");
+          }
         } else {
           emitProgress(0, "Starting comparison (Content Match)...");
           results = diff_csv(
@@ -219,15 +270,33 @@ ctx.onmessage = async function (e) {
         currentMetrics.memoryUsed = (wasmMemory?.buffer.byteLength ?? 0) / 1024 / 1024; // MB
       }
 
-      // Post results with performance metrics
-      // Note: Results are already decoded, so we use structured clone
-      // Future optimization: Use transferable ArrayBuffer for raw binary data
-      ctx.postMessage({ 
-        requestId, 
-        type: "compare-complete", 
-        data: results,
-        metrics: currentMetrics 
-      });
+      // Post results with performance metrics using Transferable ArrayBuffers
+      // Check if results contain ArrayBuffers that can be transferred
+      const transferables: Transferable[] = [];
+      
+      // Extract any ArrayBuffer objects from the results for zero-copy transfer
+      const extractTransferables = (obj: any): void => {
+        if (obj instanceof ArrayBuffer) {
+          transferables.push(obj);
+        } else if (ArrayBuffer.isView(obj)) {
+          transferables.push(obj.buffer);
+        } else if (obj && typeof obj === 'object') {
+          Object.values(obj).forEach(extractTransferables);
+        }
+      };
+      
+      extractTransferables(results);
+      
+      // Use transferable ArrayBuffers for zero-copy data transfer
+      ctx.postMessage(
+        { 
+          requestId, 
+          type: "compare-complete", 
+          data: results,
+          metrics: currentMetrics 
+        },
+        transferables.length > 0 ? transferables : undefined
+      );
     } else if (type === "init-differ") {
       const {
         sourceRaw,
