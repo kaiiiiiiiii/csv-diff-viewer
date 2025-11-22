@@ -359,11 +359,12 @@ pub fn diff_csv_binary(
 
 /// Initialize the rayon thread pool for parallel processing
 /// This should be called once from JavaScript with the desired number of threads
-/// Typically set to navigator.hardwareConcurrency or navigator.hardwareConcurrency - 1
+pub use wasm_bindgen_rayon::init_thread_pool;
+
+/// Initialize panic hook for better error messages
 #[wasm_bindgen]
-pub fn init_parallel_processing(num_threads: usize) -> Result<(), JsValue> {
-    parallel::init_thread_pool(num_threads);
-    Ok(())
+pub fn init_panic_hook() {
+    console_error_panic_hook::set_once();
 }
 
 /// Parallel version of diff_csv_primary_key using rayon for multi-threaded processing

@@ -21,6 +21,7 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 strsim = "0.11"          # String similarity algorithms (Jaro-Winkler, Levenshtein)
 wasm-bindgen-rayon = "1.3"  # Multi-threaded parallelization for WASM
 rayon = "1.11"           # Data parallelism library
+console_error_panic_hook = "0.1" # Log panics to console
 
 [dev-dependencies]
 serde_json = "1.0"   # For testing binary encoding vs JSON
@@ -29,7 +30,6 @@ serde_json = "1.0"   # For testing binary encoding vs JSON
 opt-level = 3       # Optimize for speed (changed from 'z' for size to '3' for speed)
 lto = "fat"         # Fat link-time optimization for maximum performance
 codegen-units = 1   # Better optimization (single codegen unit)
-panic = 'abort'     # Smaller binary
 strip = true        # Strip symbols
 
 # Browser compatibility: SIMD, bulk memory, and threads require:

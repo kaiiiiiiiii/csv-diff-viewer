@@ -7,7 +7,8 @@ import init, {
   diff_csv_primary_key_parallel,
   get_binary_result_length,
   get_streaming_config,
-  init_parallel_processing,
+  init_thread_pool,
+  init_panic_hook,
   dealloc,
   parse_csv,
 } from "../../src-wasm/pkg/csv_diff_wasm";
@@ -83,6 +84,13 @@ async function initWasm() {
     wasmMemory = wasmExports.memory;
     wasmInitialized = true;
 
+    // Initialize panic hook for better error messages
+    try {
+      init_panic_hook();
+    } catch (e) {
+      console.warn("[CSV Worker] Failed to initialize panic hook:", e);
+    }
+
     // Initialize parallel processing if enabled
     if (USE_PARALLEL_PROCESSING) {
       try {
@@ -92,7 +100,7 @@ async function initWasm() {
           (navigator.hardwareConcurrency || DEFAULT_THREAD_COUNT) -
             RESERVED_THREADS,
         );
-        init_parallel_processing(numThreads);
+        await init_thread_pool(numThreads);
         console.log(
           `[CSV Worker] Initialized parallel processing with ${numThreads} threads`,
         );
