@@ -160,15 +160,43 @@ const USE_BINARY_ENCODING = true; // or false for debugging
 - Large datasets (100k+ rows)
 - Maximum performance required
 
-## Future Optimizations
+## Recent Optimizations (Phase 1)
+
+### Performance Profiling System
+- Added `Profiler` struct in Rust for tracking operation times
+- Checkpoint-based timing for detailed performance analysis
+- Memory usage tracking framework
+- Console logging in debug builds
+
+### Buffer Pooling
+- `BufferPool` class in Web Worker reduces allocation overhead
+- Reuses WASM memory allocations for repeated operations
+- Configurable pool size (default: 10 buffers)
+- Automatic cleanup on worker termination
+
+### Enhanced Error Logging
+- Detailed error context with timestamps
+- WASM memory size tracking
+- Performance metrics in error reports
+- Improved debugging and troubleshooting
+
+### Performance Metrics Collection
+- Track parse, diff, and serialize times
+- Memory usage reporting
+- Metrics included in all responses
+- Foundation for monitoring dashboard
+
+## Future Optimizations (Phase 2+)
 
 Potential areas for further improvement:
 
-1. **Byte-slice CSV parsing** - Parse CSV as byte slices to avoid String allocations
-2. **SIMD text processing** - Use SIMD for faster string operations
-3. **Parallel processing** - Use `rayon` for multi-threaded diff on very large datasets
-4. **Streaming CSV parsing** - Parse and diff in a single pass for memory efficiency
-5. **Binary format versioning** - Add version header for format evolution
+1. **Multi-threaded parallelization** - Use `wasm-bindgen-rayon` for parallel CSV diff
+2. **Streaming CSV parsing** - Parse and diff in a single pass for memory efficiency
+3. **Transferable ArrayBuffers** - Zero-copy data transfer between Worker and main thread
+4. **Full virtual scrolling** - Complete @tanstack/react-virtual integration
+5. **SIMD text processing** - Optimize string operations with SIMD
+6. **Binary format versioning** - Add version header for format evolution
+7. **Runtime profiling dashboard** - Visual performance monitoring UI
 
 ## Monitoring Performance
 
