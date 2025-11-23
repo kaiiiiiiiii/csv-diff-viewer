@@ -72,6 +72,13 @@ export function handleCompare(
     hasHeaders,
   } = payload;
 
+  // Calculate actual row counts (excluding headers if present)
+  const sourceRowCount =
+    sourceRaw.trim().split("\n").length - (hasHeaders ? 1 : 0);
+  const targetRowCount =
+    targetRaw.trim().split("\n").length - (hasHeaders ? 1 : 0);
+  const totalRowCount = Math.max(sourceRowCount, targetRowCount);
+
   // Log invocation with small context (do not log raw CSV content)
   compareLog.info("Compare handler invoked", {
     requestId,
@@ -184,8 +191,8 @@ export function handleCompare(
                     "running",
                     message,
                     percent,
-                    Math.floor((percent / 100) * sourceRaw.split("\n").length),
-                    sourceRaw.split("\n").length,
+                    Math.floor((percent / 100) * totalRowCount),
+                    totalRowCount,
                   );
                 }
                 emitProgress(percent, message);
@@ -311,8 +318,8 @@ export function handleCompare(
                     "running",
                     message,
                     percent,
-                    Math.floor((percent / 100) * sourceRaw.split("\n").length),
-                    sourceRaw.split("\n").length,
+                    Math.floor((percent / 100) * totalRowCount),
+                    totalRowCount,
                   );
                 }
                 emitProgress(percent, message);
