@@ -16,6 +16,10 @@ use crate::types::ParseResult;
 use crate::utils::record_to_hashmap;
 use crate::binary::BinaryEncoder;
 
+use rayon::prelude::*;
+use std::time::Instant;
+pub use wasm_bindgen_rayon::init_thread_pool;
+
 // Import the wasm_bindgen_test attribute for testing
 #[cfg(test)]
 use wasm_bindgen_test::wasm_bindgen_test;
@@ -390,12 +394,6 @@ pub fn diff_csv_binary(
 
 // ===== Multi-threaded Parallel Processing =====
 
-/// Initialize the rayon thread pool for parallel processing
-/// This should be called once from JavaScript with the desired number of threads
-#[wasm_bindgen(js_name = init_thread_pool)]
-pub fn init_thread_pool_wrapper(num_threads: usize) -> js_sys::Promise {
-    wasm_bindgen_rayon::init_thread_pool(num_threads)
-}
 
 /// Initialize panic hook for better error messages
 #[wasm_bindgen]
@@ -444,6 +442,28 @@ pub fn diff_csv_primary_key_parallel(
 
     let serializer = serde_wasm_bindgen::Serializer::json_compatible();
     Ok(result.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))?)
+}
+
+/// Benchmark parallel rayon performance for thread pool validation and speedup measurement.
+///
+/// **Prerequisites:** JS must initialize the WASM thread pool before calling:
+/// ```javascript
+/// import init, { init_thread_pool } from './path-to-wasm';
+/// await init();
+/// await init_thread_pool(navigator.hardwareConcurrency);
+/// const parallelTime = benchmark_parallel();
+/// console.log(`Parallel benchmark (1M elements): ${parallelTime.toFixed(3)}s`);
+/// ```
+///
+/// Computes sum of squares for 1M u64 elements using `par_iter()`.
+///
+/// Returns execution time in seconds. Lower is better. Compare against sequential version.
+#[wasm_bindgen]
+pub fn benchmark_parallel() -> f64 {
+    let start = Instant::now();
+    let data: Vec<u64> = (0..1_000_000u64).collect();
+    let _sum: u64 = data.par_iter().map(|&x| x * x).sum::<u64>();
+    start.elapsed().as_secs_f64()
 }
 
 // ===== Streaming CSV Processing =====

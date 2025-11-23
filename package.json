@@ -3,13 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite dev --port 3000",
-    "build:wasm": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals' wasm-pack build --target web",
     "build": "npm run build:wasm && vite build",
-    "serve": "vite preview",
-    "lint": "eslint",
-    "format": "prettier",
+    "build:wasm": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory' wasm-pack build --target web --release --out-dir ../wasm -- -Z build-std=panic_abort,std",
     "check": "prettier --write . && eslint --fix",
+    "dev": "vite dev --port 3000",
+    "format": "prettier",
+    "lint": "eslint",
+    "serve": "vite preview",
     "test": "vitest"
   },
   "dependencies": {

@@ -40,7 +40,7 @@ pub fn parallel_compare_rows(
     
     // Process sequentially for now (will be parallel in native builds)
     let results: Vec<_> = target_keys
-        .iter()
+        .par_iter()
         .map(|(key, &target_row_idx)| {
             let target_row = &target_rows[target_row_idx];
             
@@ -144,7 +144,7 @@ pub fn parallel_find_removed(
     let source_keys: Vec<_> = source_map.iter().collect();
     
     source_keys
-        .iter()
+        .par_iter()
         .filter_map(|(key, &row_idx)| {
             if !target_map.contains_key(*key) {
                 Some(RemovedRow {
@@ -230,19 +230,12 @@ where
     on_progress(60.0, "Comparing rows...");
 
     // Find removed rows in parallel
-    let removed: Vec<RemovedRow> = source_map
-        .par_iter()
-        .filter_map(|(key, &row_idx)| {
-            if !target_map.contains_key(key) {
-                Some(RemovedRow {
-                    key: key.clone(),
-                    source_row: record_to_hashmap(&source_rows[row_idx], &source_headers),
-                })
-            } else {
-                None
-            }
-        })
-        .collect();
+    let removed = parallel_find_removed(
+        &source_map,
+        &source_rows,
+        &source_headers,
+        &target_map,
+    );
 
     // Find added, modified, and unchanged rows in parallel
     let (added, modified, unchanged) = parallel_compare_rows(

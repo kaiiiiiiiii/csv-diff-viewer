@@ -501,3 +501,8 @@ const config = get_streaming_config();
 - [SharedArrayBuffer Security](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer#security_requirements)
 - [TanStack Virtual](https://tanstack.com/virtual/latest)
 - [ahash crate](https://crates.io/crates/ahash)
+
+## WASM Threads Build
+
+Use `npm run build:wasm` with --target web for Rayon threads (requires COOP/COEP).
+Verify: cargo check --target wasm32-unknown-unknown
