@@ -1,3 +1,5 @@
+import { SharedStringDecoder } from "./shared-string-decoder";
+
 /**
  * Binary decoder for WASM diff results.
  *
@@ -76,7 +78,6 @@ export class BinaryDecoder {
   private buffer: Uint8Array;
   private view: DataView;
   private position: number;
-  private textDecoder: TextDecoder;
 
   constructor(buffer: ArrayBuffer | Uint8Array) {
     this.buffer =
@@ -87,7 +88,6 @@ export class BinaryDecoder {
       this.buffer.byteLength,
     );
     this.position = 0;
-    this.textDecoder = new TextDecoder();
   }
 
   /**
@@ -183,7 +183,7 @@ export class BinaryDecoder {
   }
 
   /**
-   * Read a UTF-8 string with length prefix.
+   * Read string with length prefix.
    */
   private readString(): string {
     const length = this.readU32();
@@ -194,7 +194,8 @@ export class BinaryDecoder {
     }
     const bytes = this.buffer.subarray(this.position, this.position + length);
     this.position += length;
-    return this.textDecoder.decode(bytes);
+    // Use SharedStringDecoder to handle SharedArrayBuffer
+    return SharedStringDecoder.decode(bytes);
   }
 
   /**

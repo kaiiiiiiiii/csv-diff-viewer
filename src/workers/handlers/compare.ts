@@ -50,11 +50,11 @@ export function handleCompare(
     comparisonMode,
     useBinaryEncoding: USE_BINARY_ENCODING,
     useParallelProcessing: USE_PARALLEL_PROCESSING,
-    sourceSize: sourceRaw?.length ?? 0,
-    targetSize: targetRaw?.length ?? 0,
+    sourceSize: sourceRaw.length,
+    targetSize: targetRaw.length,
     hasHeaders,
     keyColumnCount: keyColumns?.length ?? 0,
-    excludedColumnCount: excludedColumns?.length ?? 0,
+    excludedColumnCount: excludedColumns.length,
   });
 
   if (!sourceRaw || !targetRaw) {
@@ -65,6 +65,17 @@ export function handleCompare(
   let results;
   const wasmMemory = getWasmMemory();
   const wasmInstance = getWasmInstance();
+  const releaseBinaryBuffer = (ptr: number, capacity: number): void => {
+    if (!ptr || !capacity) return;
+    const deallocFn = (wasmInstance as { dealloc?: (p: number, size: number) => void }).dealloc;
+    if (typeof deallocFn === "function") {
+      deallocFn(ptr, capacity);
+    } else {
+      compareLog.warn("WASM dealloc function unavailable; skipping buffer release", {
+        requestId,
+      });
+    }
+  };
 
   try {
     if (USE_BINARY_ENCODING) {
@@ -92,27 +103,17 @@ export function handleCompare(
         const resultCapacity = get_binary_result_capacity();
         results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
 
-        // Log counts if present
-        if (results) {
-          compareLog.info("Decoded binary diff counts", {
-            requestId,
-            added: Array.isArray(results.added) ? results.added.length : null,
-            removed: Array.isArray(results.removed)
-              ? results.removed.length
-              : null,
-            modified: Array.isArray(results.modified)
-              ? results.modified.length
-              : null,
-            unchanged: Array.isArray(results.unchanged)
-              ? results.unchanged.length
-              : null,
-          });
-        }
+        // Log counts
+        compareLog.info("Decoded binary diff counts", {
+          requestId,
+          added: results.added.length,
+          removed: results.removed.length,
+          modified: results.modified.length,
+          unchanged: results.unchanged.length,
+        });
 
         // Clean up WASM memory
-        if (typeof wasmInstance?.dealloc === "function") {
-          wasmInstance.dealloc(resultPtr, resultCapacity);
-        }
+        releaseBinaryBuffer(resultPtr, resultCapacity);
         emitProgress(100, "Comparison complete");
       } else {
         compareLog.debug("Calling WASM method", {
@@ -135,26 +136,22 @@ export function handleCompare(
         const resultLength = get_binary_result_length();
         const resultCapacity = get_binary_result_capacity();
         results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
-        if (results) {
-          compareLog.info("Decoded binary diff counts", {
-            requestId,
-            added: Array.isArray(results.added) ? results.added.length : null,
-            removed: Array.isArray(results.removed)
-              ? results.removed.length
-              : null,
-            modified: Array.isArray(results.modified)
-              ? results.modified.length
-              : null,
-            unchanged: Array.isArray(results.unchanged)
-              ? results.unchanged.length
-              : null,
-          });
-        }
+        compareLog.info("Decoded binary diff counts", {
+          requestId,
+          added: Array.isArray(results.added) ? results.added.length : null,
+          removed: Array.isArray(results.removed)
+            ? results.removed.length
+            : null,
+          modified: Array.isArray(results.modified)
+            ? results.modified.length
+            : null,
+          unchanged: Array.isArray(results.unchanged)
+            ? results.unchanged.length
+            : null,
+        });
 
         // Clean up WASM memory
-        if (typeof wasmInstance?.dealloc === "function") {
-          wasmInstance.dealloc(resultPtr, resultCapacity);
-        }
+        releaseBinaryBuffer(resultPtr, resultCapacity);
         emitProgress(100, "Comparison complete");
       }
     } else {

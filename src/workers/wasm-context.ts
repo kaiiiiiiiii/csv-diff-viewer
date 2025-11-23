@@ -13,6 +13,24 @@ export const bufferPool: Map<number, unknown> = new Map<number, unknown>();
 export const USE_BINARY_ENCODING = Boolean(true);
 export const USE_PARALLEL_PROCESSING = Boolean(true);
 
+/**
+ * Check if WASM memory is shared (SharedArrayBuffer)
+ */
+export function isWasmMemoryShared(): boolean {
+  if (!wasmMemory) {
+    return false;
+  }
+  return wasmMemory.buffer instanceof SharedArrayBuffer;
+}
+
+/**
+ * Fallback to non-binary encoding when SharedArrayBuffer detected
+ */
+export function shouldUseBinaryEncoding(): boolean {
+  // For now, always try binary encoding - the decoder will handle SharedArrayBuffer
+  return USE_BINARY_ENCODING;
+}
+
 export function getWasmModule(): any {
   if (!wasmInitialized) {
     throw new Error("WASM not initialized");
@@ -163,7 +181,9 @@ export async function initWasm(): Promise<void> {
         );
       }
 
-      wasmModule = glue.default || glue;
+      // Always keep a reference to the full glue module so we can access helpers
+      // like `dealloc` that the compare handler relies on for manual cleanup.
+      wasmModule = glue;
       wasmMemory = resolvedMemory;
 
       try {
