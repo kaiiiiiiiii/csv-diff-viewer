@@ -143,7 +143,8 @@ export function ConfigPanel({
                   Chunked Processing
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  For large datasets (1M+ rows). Stores results in IndexedDB.
+                  Recommended for 50k+ rows. Automatically enabled above this
+                  threshold and stores results in IndexedDB.
                 </p>
               </div>
               <Switch

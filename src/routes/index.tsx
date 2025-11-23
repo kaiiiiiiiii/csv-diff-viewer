@@ -20,6 +20,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+const AUTO_CHUNK_ROW_THRESHOLD = 50000;
+
 const EXAMPLE_SOURCE = `id,name,role,department
 1,John Doe,Developer,Engineering
 2,Jane Smith,Designer,Design
@@ -40,6 +42,18 @@ const EXAMPLE_TARGET = `id,name,role,department
 9,Henry Kim,Team Lead,Customer Service
 10,Ivy Chen,Engineer,Engineering
 11,Jack White,Developer,Engineering`;
+
+const estimateRowCount = (csvText?: string | null, hasHeaders = true) => {
+  if (!csvText) return 0;
+  let totalLines = 1;
+  for (let i = 0; i < csvText.length; i += 1) {
+    if (csvText.charCodeAt(i) === 10) {
+      totalLines += 1;
+    }
+  }
+  const rows = hasHeaders ? Math.max(totalLines - 1, 0) : totalLines;
+  return Number.isFinite(rows) ? rows : 0;
+};
 
 const formatError = (error: unknown) => {
   if (error instanceof Error) {
@@ -73,6 +87,11 @@ const normalizeDiffResult = (
     mode: result?.mode ?? "content-match",
   };
 };
+
+interface ParsedCsvResult {
+  headers: Array<string>;
+  rows?: Array<any>;
+}
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -118,6 +137,22 @@ function Index() {
     string | null
   >(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const sourceText = sourceData?.text ?? "";
+  const targetText = targetData?.text ?? "";
+  const sourceRowEstimate = useMemo(
+    () => estimateRowCount(sourceText, hasHeaders),
+    [sourceText, hasHeaders],
+  );
+  const targetRowEstimate = useMemo(
+    () => estimateRowCount(targetText, hasHeaders),
+    [targetText, hasHeaders],
+  );
+  const chunkedRowEstimate =
+    mode === "primary-key" ? targetRowEstimate : sourceRowEstimate;
+  const shouldForceChunked =
+    Boolean(sourceData && targetData) &&
+    chunkedRowEstimate >= AUTO_CHUNK_ROW_THRESHOLD;
+  const chunkedProcessingActive = useChunkedMode || shouldForceChunked;
 
   useEffect(() => {
     if (results && resultsRef.current) {
@@ -185,19 +220,36 @@ function Index() {
     setProgress({ percent: 0, message: "Starting..." });
 
     try {
-      const sourceParsed = await parse(
+      const sourceParsed = (await parse(
         sourceData.text,
         sourceData.name,
         hasHeaders,
-      );
-      const targetParsed = await parse(
+      )) as ParsedCsvResult;
+      const targetParsed = (await parse(
         targetData.text,
         targetData.name,
         hasHeaders,
-      );
+      )) as ParsedCsvResult;
+
+      const getRowCount = (parsed: ParsedCsvResult, fallback: number) =>
+        Array.isArray(parsed.rows) ? parsed.rows.length : fallback;
+      const actualSourceRowCount = getRowCount(sourceParsed, sourceRowEstimate);
+      const actualTargetRowCount = getRowCount(targetParsed, targetRowEstimate);
+      const rowsForChunking =
+        mode === "primary-key" ? actualTargetRowCount : actualSourceRowCount;
+      const shouldUseChunkedMode =
+        useChunkedMode || rowsForChunking >= AUTO_CHUNK_ROW_THRESHOLD;
+
+      if (!useChunkedMode && shouldUseChunkedMode) {
+        routeLogger.info("Auto-enabled chunked processing", {
+          rows: rowsForChunking,
+          threshold: AUTO_CHUNK_ROW_THRESHOLD,
+          mode,
+        });
+      }
 
       // Use chunked mode for large datasets
-      if (useChunkedMode) {
+      if (shouldUseChunkedMode) {
         const diffId = await startChunkedDiff(
           sourceData.text,
           targetData.text,
@@ -329,8 +381,15 @@ function Index() {
         setUseChunkedMode={setUseChunkedMode}
         chunkSize={chunkSize}
         setChunkSize={setChunkSize}
-      />{" "}
-      {useChunkedMode && <StorageMonitor />}
+      />
+      {shouldForceChunked && !useChunkedMode && (
+        <div className="rounded-md border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+          Automatically enabling chunked processing for approximately{" "}
+          {chunkedRowEstimate.toLocaleString()} rows (threshold{" "}
+          {AUTO_CHUNK_ROW_THRESHOLD.toLocaleString()}).
+        </div>
+      )}
+      {chunkedProcessingActive && <StorageMonitor />}
       <div className="flex justify-center">
         <Button
           size="lg"
