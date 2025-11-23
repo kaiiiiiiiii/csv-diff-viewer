@@ -120,58 +120,5 @@ export function useCsvWorker() {
     [],
   );
 
-  const initDiffer = useCallback(
-    (sourceRaw: string, targetRaw: string, options: any) => {
-      return new Promise((resolve, reject) => {
-        const id = requestIdCounterRef.current++;
-        requestMapRef.current.set(id, { id, resolve, reject });
-        workerRef.current?.postMessage({
-          requestId: id,
-          type: "init-differ",
-          data: {
-            sourceRaw,
-            targetRaw,
-            ...options,
-          },
-        });
-      });
-    },
-    [],
-  );
-
-  const diffChunk = useCallback(
-    (
-      chunkStart: number,
-      chunkSize: number,
-      onProgress?: (percent: number, message: string) => void,
-    ) => {
-      return new Promise((resolve, reject) => {
-        const id = requestIdCounterRef.current++;
-        requestMapRef.current.set(id, { id, resolve, reject, onProgress });
-        workerRef.current?.postMessage({
-          requestId: id,
-          type: "diff-chunk",
-          data: {
-            chunkStart,
-            chunkSize,
-          },
-        });
-      });
-    },
-    [],
-  );
-
-  const cleanupDiffer = useCallback(() => {
-    return new Promise((resolve, reject) => {
-      const id = requestIdCounterRef.current++;
-      requestMapRef.current.set(id, { id, resolve, reject });
-      workerRef.current?.postMessage({
-        requestId: id,
-        type: "cleanup-differ",
-        data: {},
-      });
-    });
-  }, []);
-
-  return { parse, compare, initDiffer, diffChunk, cleanupDiffer };
+  return { parse, compare };
 }

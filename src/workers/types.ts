@@ -25,13 +25,6 @@ export interface ComparePayload {
   hasHeaders?: boolean;
 }
 
-export interface InitDifferPayload extends ComparePayload {}
-
-export interface DiffChunkPayload {
-  chunkStart: number;
-  chunkSize: number;
-}
-
 export interface WasmThreadPayload {
   memory: WebAssembly.Memory;
   module: WebAssembly.Module;
@@ -40,12 +33,7 @@ export interface WasmThreadPayload {
 export type WorkerRequest =
   | {
       requestId: number;
-      type:
-        | "parse"
-        | "compare"
-        | "init-differ"
-        | "diff-chunk"
-        | "cleanup-differ";
+      type: "parse" | "compare";
       data: any; // Specific payload based on type
     }
   | {

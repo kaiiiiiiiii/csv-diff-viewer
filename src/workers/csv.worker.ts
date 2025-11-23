@@ -1,16 +1,9 @@
 import { bufferPool, initWasm } from "./wasm-context";
 import { handleParse } from "./handlers/parse";
 import { handleCompare } from "./handlers/compare";
-import {
-  handleCleanupDiffer,
-  handleDiffChunk,
-  handleInitDiffer,
-} from "./handlers/chunked-diff";
 import { createWorkerLogger } from "./worker-logger";
 import type {
   ComparePayload,
-  DiffChunkPayload,
-  InitDifferPayload,
   ParsePayload,
   PerformanceMetrics,
   WorkerRequest,
@@ -98,25 +91,6 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
         );
         break;
       }
-      case "init-differ":
-        handleInitDiffer(
-          requestId,
-          data as InitDifferPayload,
-          simplePostMessage,
-        );
-        break;
-      case "diff-chunk":
-        handleDiffChunk(
-          requestId,
-          data as DiffChunkPayload,
-          simplePostMessage,
-          (percent: number, msg: string) =>
-            postProgress(requestId, percent, msg),
-        );
-        break;
-      case "cleanup-differ":
-        handleCleanupDiffer(requestId, simplePostMessage);
-        break;
       default:
         throw new Error(`Unknown request type: ${type}`);
     }

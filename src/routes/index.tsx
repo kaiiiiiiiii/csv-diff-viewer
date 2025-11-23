@@ -2,13 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FileSpreadsheet, Loader2 } from "lucide-react";
 import { useCsvWorker } from "@/hooks/useCsvWorker";
-import { useChunkedDiff } from "@/hooks/useChunkedDiff";
 import { createScopedLogger } from "@/lib/dev-logger";
 import { CsvInput } from "@/components/CsvInput";
 import { ConfigPanel } from "@/components/ConfigPanel";
 import { DiffStats } from "@/components/DiffStats";
 import { DiffTable } from "@/components/DiffTable";
-import { StorageMonitor } from "@/components/StorageMonitor";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -19,8 +17,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
-const AUTO_CHUNK_ROW_THRESHOLD = 50000;
 
 const EXAMPLE_SOURCE = `id,name,role,department
 1,John Doe,Developer,Engineering
@@ -42,18 +38,6 @@ const EXAMPLE_TARGET = `id,name,role,department
 9,Henry Kim,Team Lead,Customer Service
 10,Ivy Chen,Engineer,Engineering
 11,Jack White,Developer,Engineering`;
-
-const estimateRowCount = (csvText?: string | null, hasHeaders = true) => {
-  if (!csvText) return 0;
-  let totalLines = 1;
-  for (let i = 0; i < csvText.length; i += 1) {
-    if (csvText.charCodeAt(i) === 10) {
-      totalLines += 1;
-    }
-  }
-  const rows = hasHeaders ? Math.max(totalLines - 1, 0) : totalLines;
-  return Number.isFinite(rows) ? rows : 0;
-};
 
 const formatError = (error: unknown) => {
   if (error instanceof Error) {
@@ -99,7 +83,6 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   const { parse, compare } = useCsvWorker();
-  const { startChunkedDiff, loadDiffResults } = useChunkedDiff();
   const [sourceData, setSourceData] = useState<{
     text: string;
     name: string;
@@ -119,16 +102,12 @@ function Index() {
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(true);
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [ignoreEmptyVsNull, setIgnoreEmptyVsNull] = useState(true);
-  const [useChunkedMode, setUseChunkedMode] = useState(false);
-  const [chunkSize, setChunkSize] = useState(10000);
 
   const [results, setResults] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{
     percent: number;
     message: string;
-    currentChunk?: number;
-    totalChunks?: number;
   } | null>(null);
   const [showOnlyDiffs, setShowOnlyDiffs] = useState(false);
 
@@ -137,22 +116,6 @@ function Index() {
     string | null
   >(null);
   const resultsRef = useRef<HTMLDivElement>(null);
-  const sourceText = sourceData?.text ?? "";
-  const targetText = targetData?.text ?? "";
-  const sourceRowEstimate = useMemo(
-    () => estimateRowCount(sourceText, hasHeaders),
-    [sourceText, hasHeaders],
-  );
-  const targetRowEstimate = useMemo(
-    () => estimateRowCount(targetText, hasHeaders),
-    [targetText, hasHeaders],
-  );
-  const chunkedRowEstimate =
-    mode === "primary-key" ? targetRowEstimate : sourceRowEstimate;
-  const shouldForceChunked =
-    Boolean(sourceData && targetData) &&
-    chunkedRowEstimate >= AUTO_CHUNK_ROW_THRESHOLD;
-  const chunkedProcessingActive = useChunkedMode || shouldForceChunked;
 
   useEffect(() => {
     if (results && resultsRef.current) {
@@ -231,73 +194,24 @@ function Index() {
         hasHeaders,
       )) as ParsedCsvResult;
 
-      const getRowCount = (parsed: ParsedCsvResult, fallback: number) =>
-        Array.isArray(parsed.rows) ? parsed.rows.length : fallback;
-      const actualSourceRowCount = getRowCount(sourceParsed, sourceRowEstimate);
-      const actualTargetRowCount = getRowCount(targetParsed, targetRowEstimate);
-      const rowsForChunking =
-        mode === "primary-key" ? actualTargetRowCount : actualSourceRowCount;
-      const shouldUseChunkedMode =
-        useChunkedMode || rowsForChunking >= AUTO_CHUNK_ROW_THRESHOLD;
-
-      if (!useChunkedMode && shouldUseChunkedMode) {
-        routeLogger.info("Auto-enabled chunked processing", {
-          rows: rowsForChunking,
-          threshold: AUTO_CHUNK_ROW_THRESHOLD,
-          mode,
-        });
-      }
-
-      // Use chunked mode for large datasets
-      if (shouldUseChunkedMode) {
-        const diffId = await startChunkedDiff(
-          sourceData.text,
-          targetData.text,
-          sourceParsed.headers,
-          targetParsed.headers,
-          {
-            comparisonMode: mode,
-            keyColumns: keyColumns.filter(Boolean),
-            excludedColumns: excludedColumns.filter(Boolean),
-            caseSensitive,
-            ignoreWhitespace,
-            ignoreEmptyVsNull,
-            hasHeaders,
-            chunkSize,
-          },
-          (chunkProgress) => {
-            setProgress({
-              percent: chunkProgress.percent,
-              message: chunkProgress.message,
-              currentChunk: chunkProgress.currentChunk,
-              totalChunks: chunkProgress.totalChunks,
-            });
-          },
-        );
-
-        // Load results from IndexedDB
-        const res = await loadDiffResults(diffId);
-        setResults(normalizeDiffResult(res, sourceParsed, targetParsed));
-      } else {
-        // Normal mode - load everything into memory
-        const res = await compare(
-          sourceParsed,
-          targetParsed,
-          {
-            comparisonMode: mode,
-            keyColumns: keyColumns.filter(Boolean),
-            excludedColumns: excludedColumns.filter(Boolean),
-            caseSensitive,
-            ignoreWhitespace,
-            ignoreEmptyVsNull,
-            sourceRaw: sourceData.text,
-            targetRaw: targetData.text,
-            hasHeaders,
-          },
-          (percent, message) => setProgress({ percent, message }),
-        );
-        setResults(normalizeDiffResult(res, sourceParsed, targetParsed));
-      }
+      // Normal mode - load everything into memory
+      const res = await compare(
+        sourceParsed,
+        targetParsed,
+        {
+          comparisonMode: mode,
+          keyColumns: keyColumns.filter(Boolean),
+          excludedColumns: excludedColumns.filter(Boolean),
+          caseSensitive,
+          ignoreWhitespace,
+          ignoreEmptyVsNull,
+          sourceRaw: sourceData.text,
+          targetRaw: targetData.text,
+          hasHeaders,
+        },
+        (percent, message) => setProgress({ percent, message }),
+      );
+      setResults(normalizeDiffResult(res, sourceParsed, targetParsed));
     } catch (e: any) {
       alert("Error: " + e.message);
     } finally {
@@ -377,19 +291,7 @@ function Index() {
         ignoreEmptyVsNull={ignoreEmptyVsNull}
         setIgnoreEmptyVsNull={setIgnoreEmptyVsNull}
         availableColumns={availableColumns}
-        useChunkedMode={useChunkedMode}
-        setUseChunkedMode={setUseChunkedMode}
-        chunkSize={chunkSize}
-        setChunkSize={setChunkSize}
       />
-      {shouldForceChunked && !useChunkedMode && (
-        <div className="rounded-md border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-          Automatically enabling chunked processing for approximately{" "}
-          {chunkedRowEstimate.toLocaleString()} rows (threshold{" "}
-          {AUTO_CHUNK_ROW_THRESHOLD.toLocaleString()}).
-        </div>
-      )}
-      {chunkedProcessingActive && <StorageMonitor />}
       <div className="flex justify-center">
         <Button
           size="lg"
@@ -401,9 +303,7 @@ function Index() {
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               {progress
-                ? progress.totalChunks
-                  ? `${Math.round(progress.percent)}% - Chunk ${progress.currentChunk}/${progress.totalChunks}`
-                  : `${Math.round(progress.percent)}% - ${progress.message}`
+                ? `${Math.round(progress.percent)}% - ${progress.message}`
                 : "Processing..."}
             </>
           ) : (
