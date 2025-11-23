@@ -211,7 +211,7 @@ export async function handleCompare(
                 // Check for THREAD_PROGRESS messages (both legacy and JSON formats)
                 if (typeof message === "string") {
                   let threadProgressFound = false;
-                  
+
                   // Parse legacy format: THREAD_PROGRESS|<id>|<processed>|<perThreadTotal>
                   if (
                     message.startsWith("THREAD_PROGRESS|") &&
@@ -246,8 +246,11 @@ export async function handleCompare(
                         typeof data.perThreadTotal === "number"
                       ) {
                         // Use the global progress from the JSON if available, otherwise use the percent parameter
-                        const globalProgress = typeof data.globalProgress === "number" ? data.globalProgress : percent;
-                        
+                        const globalProgress =
+                          typeof data.globalProgress === "number"
+                            ? data.globalProgress
+                            : percent;
+
                         emitThreadStatus(
                           data.threadId,
                           "running",
@@ -265,10 +268,13 @@ export async function handleCompare(
                       });
                     }
                   }
-                  
+
                   // Only fall back to global updates if no thread-specific progress was found
                   // and this is a key progress message (avoid spamming for every chunk)
-                  if (!threadProgressFound && (percent % 5 < 1 || message.includes("Complete"))) {
+                  if (
+                    !threadProgressFound &&
+                    (percent % 5 < 1 || message.includes("Complete"))
+                  ) {
                     // Update only the overall worker status, not individual threads
                     emitProgress(percent, message);
                   } else if (!threadProgressFound) {
@@ -422,7 +428,7 @@ export async function handleCompare(
                 // Check for THREAD_PROGRESS messages (both legacy and JSON formats)
                 if (typeof message === "string") {
                   let threadProgressFound = false;
-                  
+
                   // Parse legacy format: THREAD_PROGRESS|<id>|<processed>|<perThreadTotal>
                   if (
                     message.startsWith("THREAD_PROGRESS|") &&
@@ -457,8 +463,11 @@ export async function handleCompare(
                         typeof data.perThreadTotal === "number"
                       ) {
                         // Use the global progress from the JSON if available
-                        const globalProgress = typeof data.globalProgress === "number" ? data.globalProgress : percent;
-                        
+                        const globalProgress =
+                          typeof data.globalProgress === "number"
+                            ? data.globalProgress
+                            : percent;
+
                         emitThreadStatus(
                           data.threadId,
                           "running",
@@ -476,10 +485,13 @@ export async function handleCompare(
                       });
                     }
                   }
-                  
+
                   // Only fall back to global updates if no thread-specific progress was found
                   // and this is a key progress message (avoid spamming for every chunk)
-                  if (!threadProgressFound && (percent % 5 < 1 || message.includes("Complete"))) {
+                  if (
+                    !threadProgressFound &&
+                    (percent % 5 < 1 || message.includes("Complete"))
+                  ) {
                     // Update only the overall worker status, not individual threads
                     emitProgress(percent, message);
                   } else if (!threadProgressFound) {
