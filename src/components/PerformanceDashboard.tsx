@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, Cpu, HardDrive, Zap } from "lucide-react";
 import type { DevLogEvent, PerformanceLogEvent } from "@/lib/dev-logger";
-import type {ThreadStatus, WorkerStatus} from "@/hooks/useWorkerStatus";
+import type { ThreadStatus, WorkerStatus } from "@/hooks/useWorkerStatus";
 import {
   DEV_LOG_EVENT,
   PERFORMANCE_LOG_EVENT,
@@ -15,11 +15,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import {
-  
-  
-  useWorkerStatus
-} from "@/hooks/useWorkerStatus";
+import { useWorkerStatus } from "@/hooks/useWorkerStatus";
 
 // Type guard for performance.memory API (Chrome-specific)
 interface PerformanceMemory {

@@ -72,10 +72,10 @@ export function useWorkerStatus() {
       } else if (scope === "Worker Pool") {
         const queueLength =
           details && typeof details === "object" && "queueLength" in details
-            ? (details).queueLength
+            ? details.queueLength
             : 0;
 
-        updateWorkerStatus((prev: WorkerStatus) => ({
+        setWorkerStatus((prev: WorkerStatus) => ({
           ...prev,
           isActive: status === "running",
           queueLength,
