@@ -247,8 +247,8 @@ pub fn diff_csv_primary_key_parallel(
         let _ = on_progress.call2(&this, &JsValue::from_f64(progress), &JsValue::from_str(message));
     };
 
-    // TODO: Implement dedicated parallel version using parallel::parallel_compare_rows
-    let result = crate::core::diff_csv_primary_key_internal(
+    // Use the parallel implementation for primary-key diffs
+    let result = crate::parallel::diff_csv_parallel_internal(
         source_csv,
         target_csv,
         key_columns,

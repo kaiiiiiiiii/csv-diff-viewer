@@ -43,6 +43,12 @@ where
     // Convert HashMap to Vec for iteration
     let target_keys: Vec<_> = target_map.iter().collect();
     const CHUNK_SIZE: usize = 1000;
+    let num_threads = rayon::current_num_threads();
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    let per_thread_counters: Vec<Arc<AtomicUsize>> = (0..num_threads)
+        .map(|_| Arc::new(AtomicUsize::new(0)))
+        .collect();
     let total_keys = target_keys.len();
     let mut processed_keys = 0;
     
@@ -54,6 +60,9 @@ where
         let chunk_results: Vec<_> = chunk
             .par_iter()
             .map(|(key, &target_row_idx)| {
+            // Track per-thread processed counts for better progress reporting
+            let thread_idx = rayon::current_thread_index().unwrap_or(0);
+                let _processed_for_thread = per_thread_counters[thread_idx].fetch_add(1, Ordering::Relaxed) + 1;
                 let target_row = &target_rows[target_row_idx];
                 
                 match source_map.get(*key) {
@@ -141,7 +150,14 @@ where
         
         processed_keys += chunk.len();
         let progress = 60.0 + (processed_keys as f64 / total_keys as f64) * 40.0;
+        // Emit global progress
         on_progress(progress, &format!("Comparing rows... ({}/{})", processed_keys, total_keys));
+        // Emit per-thread progress lines in simple parseable format: THREAD_PROGRESS|<id>|<processed>|<per_thread_total>
+        let per_thread_total = (total_keys + num_threads - 1) / num_threads;
+        for i in 0..num_threads {
+            let processed_i = per_thread_counters[i].load(Ordering::Relaxed);
+            on_progress(progress, &format!("THREAD_PROGRESS|{}|{}|{}", i, processed_i, per_thread_total));
+        }
     }
     
     (all_added, all_modified, all_unchanged)
@@ -411,12 +427,21 @@ where
     const CHUNK_SIZE: usize = 1000;
     let total_unmatched = unmatched_source_indices.len();
     let mut processed_unmatched = 0;
+    // Per-thread counters for fuzzy matching
+    let num_threads = rayon::current_num_threads();
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    let fuzzy_per_thread_counters: Vec<Arc<AtomicUsize>> = (0..num_threads)
+        .map(|_| Arc::new(AtomicUsize::new(0)))
+        .collect();
     let mut all_potential_matches = Vec::new();
 
     for chunk in unmatched_source_indices.chunks(CHUNK_SIZE) {
         let chunk_matches: Vec<MatchCandidate> = chunk
             .par_iter()
             .filter_map(|&source_idx| {
+            let thread_idx = rayon::current_thread_index().unwrap_or(0);
+            let _processed = fuzzy_per_thread_counters[thread_idx].fetch_add(1, Ordering::Relaxed) + 1;
                 let source_row = &source_rows[source_idx];
                 
                 // Find candidates using value lookup
@@ -515,6 +540,12 @@ where
         processed_unmatched += chunk.len();
         let progress = 50.0 + (processed_unmatched as f64 / total_unmatched as f64) * 50.0;
         on_progress(progress, &format!("Fuzzy matching in parallel... ({}/{})", processed_unmatched, total_unmatched));
+        // Emit per-thread progress messages
+        let per_thread_total = (total_unmatched + num_threads - 1) / num_threads;
+        for i in 0..num_threads {
+            let processed_i = fuzzy_per_thread_counters[i].load(Ordering::Relaxed);
+            on_progress(progress, &format!("THREAD_PROGRESS|{}|{}|{}", i, processed_i, per_thread_total));
+        }
     }
 
     let potential_matches = all_potential_matches;

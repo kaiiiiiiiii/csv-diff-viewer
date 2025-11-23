@@ -151,9 +151,7 @@ export function handleCompare(
           modified: results.modified.length,
           unchanged: results.unchanged.length,
         });
-
         // Clean up WASM memory
-        releaseBinaryBuffer(resultPtr, resultCapacity);
         emitProgress(100, "Comparison complete");
       } else {
         if (USE_PARALLEL_PROCESSING) {
@@ -171,8 +169,16 @@ export function handleCompare(
                 ? navigator.hardwareConcurrency || 4
                 : 4) - 1,
             );
+            const perThreadTotalContent = Math.ceil(totalRowCount / numThreads);
             for (let i = 0; i < numThreads; i++) {
-              emitThreadStatus(i, "running", "Parallel Content Match");
+              emitThreadStatus(
+                i,
+                "running",
+                "Parallel Content Match",
+                0,
+                0,
+                perThreadTotalContent,
+              );
             }
 
             const resultPtr = diff_csv_parallel_binary(
@@ -184,16 +190,40 @@ export function handleCompare(
               excludedColumns,
               hasHeaders !== false,
               (percent: number, message: string) => {
-                // Update thread progress
-                for (let i = 0; i < numThreads; i++) {
-                  emitThreadStatus(
-                    i,
-                    "running",
-                    message,
-                    percent,
-                    Math.floor((percent / 100) * totalRowCount),
-                    totalRowCount,
-                  );
+                // If message contains a THREAD_PROGRESS entry, parse and emit only for that thread
+                if (
+                  typeof message === "string" &&
+                  message.startsWith("THREAD_PROGRESS|")
+                ) {
+                  const parts = message.split("|");
+                  // Expected: THREAD_PROGRESS|<id>|<processed>|<perThreadTotal>
+                  if (parts.length === 4) {
+                    const threadId = parseInt(parts[1], 10);
+                    const processed = parseInt(parts[2], 10);
+                    const perThreadTotal = parseInt(parts[3], 10);
+                    if (!Number.isNaN(threadId)) {
+                      emitThreadStatus(
+                        threadId,
+                        "running",
+                        `Parallel Content Match`,
+                        percent,
+                        processed,
+                        perThreadTotal,
+                      );
+                    }
+                  }
+                } else {
+                  // Not a per-thread message; fall back to global updates for all threads
+                  for (let i = 0; i < numThreads; i++) {
+                    emitThreadStatus(
+                      i,
+                      "running",
+                      message,
+                      percent,
+                      Math.floor((percent / 100) * totalRowCount),
+                      totalRowCount,
+                    );
+                  }
                 }
                 emitProgress(percent, message);
               },
@@ -297,8 +327,16 @@ export function handleCompare(
                 ? navigator.hardwareConcurrency || 4
                 : 4) - 1,
             );
+            const perThreadTotalPk = Math.ceil(totalRowCount / numThreads);
             for (let i = 0; i < numThreads; i++) {
-              emitThreadStatus(i, "running", "Parallel CSV comparison");
+              emitThreadStatus(
+                i,
+                "running",
+                "Parallel CSV comparison",
+                0,
+                0,
+                perThreadTotalPk,
+              );
             }
 
             results = diff_csv_primary_key_parallel(
@@ -311,16 +349,37 @@ export function handleCompare(
               excludedColumns,
               hasHeaders !== false,
               (percent: number, message: string) => {
-                // Update thread progress
-                for (let i = 0; i < numThreads; i++) {
-                  emitThreadStatus(
-                    i,
-                    "running",
-                    message,
-                    percent,
-                    Math.floor((percent / 100) * totalRowCount),
-                    totalRowCount,
-                  );
+                if (
+                  typeof message === "string" &&
+                  message.startsWith("THREAD_PROGRESS|")
+                ) {
+                  const parts = message.split("|");
+                  if (parts.length === 4) {
+                    const threadId = parseInt(parts[1], 10);
+                    const processed = parseInt(parts[2], 10);
+                    const perThreadTotal = parseInt(parts[3], 10);
+                    if (!Number.isNaN(threadId)) {
+                      emitThreadStatus(
+                        threadId,
+                        "running",
+                        `Parallel CSV comparison`,
+                        percent,
+                        processed,
+                        perThreadTotal,
+                      );
+                    }
+                  }
+                } else {
+                  for (let i = 0; i < numThreads; i++) {
+                    emitThreadStatus(
+                      i,
+                      "running",
+                      message,
+                      percent,
+                      Math.floor((percent / 100) * totalRowCount),
+                      totalRowCount,
+                    );
+                  }
                 }
                 emitProgress(percent, message);
               },

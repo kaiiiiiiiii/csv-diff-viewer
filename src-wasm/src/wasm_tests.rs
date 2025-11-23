@@ -279,6 +279,40 @@ mod tests {
         assert_eq!(result.unchanged.len(), 1);
     }
 
+    #[test]
+    fn test_diff_csv_parallel_progress() {
+        let source = "id,name,age\n1,Alice,30\n2,Bob,25\n3,Carol,28\n4,Dan,40";
+        let target = "id,name,age\n1,Alice,30\n2,Bobby,25\n3,Carol,28\n4,Dan,41";
+        let excluded = vec![];
+
+        let mut progress_messages: Vec<String> = Vec::new();
+        let callback = |p: f64, m: &str| {
+            progress_messages.push(format!("{}|{}", p, m));
+        };
+
+        let result = crate::parallel::diff_csv_content_match_parallel(
+            source,
+            target,
+            true,
+            false,
+            false,
+            excluded,
+            true,
+            callback,
+        )
+        .unwrap();
+
+        // Ensure the parallel function called the progress callback
+        assert!(!progress_messages.is_empty(), "Expected progress messages for parallel diff");
+
+        // At least one THREAD_PROGRESS message should be present
+        let has_thread_progress = progress_messages.iter().any(|msg| msg.contains("THREAD_PROGRESS|"));
+        assert!(has_thread_progress, "Expected at least one THREAD_PROGRESS message in parallel progress");
+
+        // Ensure at least one modification found
+        assert!(result.modified.len() >= 1);
+    }
+
     // ===== CSV PARSING TESTS =====
 
     #[test]
