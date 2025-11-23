@@ -19,11 +19,38 @@ import type {
   ComparePayload,
   PerformanceMetrics,
   ProgressCallback,
+  WorkerLogPayload,
   WorkerResponse,
 } from "../types";
 
+type ThreadStatus = NonNullable<WorkerLogPayload["details"]> & {
+  status: "idle" | "running" | "completed" | "error";
+};
+
 const MAX_TRANSFERABLE_DEPTH = 10;
 const compareLog = createWorkerLogger("Compare Handler");
+
+// Emit thread status to main thread
+const emitThreadStatus = (
+  threadId: number,
+  status: ThreadStatus["status"],
+  currentTask?: string,
+  progress?: number,
+  itemsProcessed?: number,
+  totalItems?: number,
+) => {
+  if (typeof self !== "undefined" && typeof self.postMessage === "function") {
+    self.postMessage({
+      type: "dev-log",
+      data: {
+        scope: "Worker Threads",
+        message: `Thread ${threadId}: ${status}${currentTask ? ` - ${currentTask}` : ""}`,
+        level: status === "error" ? "error" : "info",
+        details: { threadId, status, progress, itemsProcessed, totalItems },
+      },
+    });
+  }
+};
 
 export function handleCompare(
   requestId: number,
@@ -170,6 +197,18 @@ export function handleCompare(
               requestId,
             });
             emitProgress(0, "Starting comparison (Primary Key, Parallel)...");
+
+            // Emit thread status for parallel processing
+            const numThreads = Math.max(
+              1,
+              (typeof navigator !== "undefined"
+                ? navigator.hardwareConcurrency || 4
+                : 4) - 1,
+            );
+            for (let i = 0; i < numThreads; i++) {
+              emitThreadStatus(i, "running", "Parallel CSV comparison");
+            }
+
             results = diff_csv_primary_key_parallel(
               sourceRaw,
               targetRaw,
@@ -179,9 +218,27 @@ export function handleCompare(
               ignoreEmptyVsNull,
               excludedColumns,
               hasHeaders !== false,
-              (percent: number, message: string) =>
-                emitProgress(percent, message),
+              (percent: number, message: string) => {
+                // Update thread progress
+                for (let i = 0; i < numThreads; i++) {
+                  emitThreadStatus(
+                    i,
+                    "running",
+                    message,
+                    percent,
+                    Math.floor((percent / 100) * sourceRaw.split("\n").length),
+                    sourceRaw.split("\n").length,
+                  );
+                }
+                emitProgress(percent, message);
+              },
             );
+
+            // Mark threads as completed
+            for (let i = 0; i < numThreads; i++) {
+              emitThreadStatus(i, "completed", "Comparison complete");
+            }
+
             emitProgress(100, "Comparison complete (Parallel)");
           } catch (error) {
             // Fallback to non-parallel if parallel fails

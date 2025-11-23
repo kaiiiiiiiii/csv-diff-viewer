@@ -1,11 +1,25 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Activity, Cpu, HardDrive, Zap } from "lucide-react";
 import type { DevLogEvent, PerformanceLogEvent } from "@/lib/dev-logger";
+import type {ThreadStatus, WorkerStatus} from "@/hooks/useWorkerStatus";
 import {
   DEV_LOG_EVENT,
   PERFORMANCE_LOG_EVENT,
   emitPerformanceLog,
 } from "@/lib/dev-logger";
 import { Card } from "@/components/ui/card";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Badge } from "@/components/ui/badge";
+import {
+  
+  
+  useWorkerStatus
+} from "@/hooks/useWorkerStatus";
 
 // Type guard for performance.memory API (Chrome-specific)
 interface PerformanceMemory {
@@ -35,12 +49,33 @@ export const PerformanceDashboard: React.FC = () => {
     limit: number;
   } | null>(null);
   const [isVisible, setIsVisible] = useState(false);
+  const { workerStatus } = useWorkerStatus();
 
-  // Check if we're in development mode
+  // Keyboard shortcut activation (Ctrl+Shift+P or Cmd+Shift+P)
   useEffect(() => {
-    const isDev = import.meta.env.DEV;
-    setIsVisible(isDev);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "P") {
+        e.preventDefault();
+        setIsVisible((prev) => !prev);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  // Check activation state from localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem("perfDashboardActive");
+    if (stored !== null) {
+      setIsVisible(stored === "true");
+    }
+  }, []);
+
+  // Persist activation state
+  useEffect(() => {
+    localStorage.setItem("perfDashboardActive", String(isVisible));
+  }, [isVisible]);
 
   // Monitor memory usage
   useEffect(() => {
@@ -157,14 +192,47 @@ export const PerformanceDashboard: React.FC = () => {
     } satisfies Record<string, string>;
   }, []);
 
+  const getThreadStatusIcon = (status: ThreadStatus["status"]) => {
+    switch (status) {
+      case "running":
+        return <Activity className="h-3 w-3 animate-pulse text-blue-500" />;
+      case "completed":
+        return <Zap className="h-3 w-3 text-green-500" />;
+      case "error":
+        return <span className="h-3 w-3 text-red-500">⚠️</span>;
+      default:
+        return <span className="h-3 w-3 text-gray-400">○</span>;
+    }
+  };
+
+  const formatProgress = (thread: ThreadStatus) => {
+    if (
+      thread.itemsProcessed !== undefined &&
+      thread.totalItems !== undefined
+    ) {
+      return `${thread.itemsProcessed} / ${thread.totalItems}`;
+    }
+    if (thread.progress !== undefined) {
+      return `${thread.progress.toFixed(1)}%`;
+    }
+    return "";
+  };
+
   return (
-    <div className="fixed bottom-4 right-4 w-96 max-h-96 overflow-hidden bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+    <div className="fixed bottom-4 right-4 w-[600px] max-h-[80vh] overflow-hidden bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
       <div className="p-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex justify-between items-center">
-          <h3 className="font-semibold text-sm">Performance Dashboard</h3>
-          <span className="text-xs text-gray-500 dark:text-gray-400">
-            DEV ONLY
-          </span>
+          <h3 className="font-semibold text-sm flex items-center gap-2">
+            <span>Performance Dashboard</span>
+            <Badge variant="outline" className="text-xs">
+              Active
+            </Badge>
+          </h3>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              Ctrl+Shift+P to toggle
+            </span>
+          </div>
         </div>
 
         {memoryInfo && (
@@ -190,7 +258,117 @@ export const PerformanceDashboard: React.FC = () => {
         )}
       </div>
 
-      <div className="overflow-y-auto max-h-80 p-2 space-y-4">
+      <div className="overflow-y-auto max-h-[60vh] p-2 space-y-4">
+        <Accordion
+          type="multiple"
+          defaultValue={["workers", "threads"]}
+          className="space-y-4"
+        >
+          <AccordionItem value="workers">
+            <AccordionTrigger className="py-2">
+              <div className="flex items-center gap-2">
+                <Cpu className="h-4 w-4" />
+                <span className="text-sm font-medium">Worker Pool Status</span>
+                <Badge
+                  variant={workerStatus.isActive ? "default" : "secondary"}
+                  className="ml-auto"
+                >
+                  {workerStatus.isActive ? "Active" : "Idle"}
+                </Badge>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="space-y-3 pb-4">
+              <div className="grid grid-cols-2 gap-4 text-xs">
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">
+                    Current Operation:
+                  </span>
+                  <div className="font-medium">
+                    {workerStatus.currentOperation || "None"}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">
+                    Queue Length:
+                  </span>
+                  <div className="font-medium">{workerStatus.queueLength}</div>
+                </div>
+                {workerStatus.memoryUsage && (
+                  <>
+                    <div>
+                      <span className="text-gray-500 dark:text-gray-400">
+                        WASM Memory:
+                      </span>
+                      <div className="font-medium">
+                        {formatMemory(workerStatus.memoryUsage.wasm)}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 dark:text-gray-400">
+                        JS Heap:
+                      </span>
+                      <div className="font-medium">
+                        {formatMemory(workerStatus.memoryUsage.js)}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="threads">
+            <AccordionTrigger className="py-2">
+              <div className="flex items-center gap-2">
+                <Activity className="h-4 w-4" />
+                <span className="text-sm font-medium">Thread Pool</span>
+                <Badge variant="outline" className="ml-auto">
+                  {workerStatus.threads.length} threads
+                </Badge>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="space-y-2 pb-4">
+              {workerStatus.threads.map((thread) => (
+                <div
+                  key={thread.id}
+                  className="flex items-center justify-between p-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40"
+                >
+                  <div className="flex items-center gap-2">
+                    {getThreadStatusIcon(thread.status)}
+                    <span className="text-xs font-medium">
+                      Thread {thread.id}
+                    </span>
+                  </div>
+                  <div className="flex-1 mx-3">
+                    {thread.currentTask && (
+                      <div className="text-xs text-gray-600 dark:text-gray-300">
+                        {thread.currentTask}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      {formatProgress(thread)}
+                    </div>
+                    <Badge
+                      variant={
+                        thread.status === "running"
+                          ? "default"
+                          : thread.status === "error"
+                            ? "destructive"
+                            : "secondary"
+                      }
+                      className="text-[10px]"
+                    >
+                      {thread.status.toUpperCase()}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+
         <section>
           <div className="flex items-center justify-between mb-1">
             <h4 className="text-xs font-semibold tracking-wide text-gray-600 dark:text-gray-300 uppercase">

@@ -18,6 +18,8 @@ import type {
 } from "./types";
 
 let wasmInitialized = false;
+let workerQueue: Array<{ requestId: number; type: string; timestamp: number }> =
+  [];
 const workerLog = createWorkerLogger("CSV Worker");
 
 const postProgress = (
@@ -53,6 +55,21 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
   }
 
   const { requestId, type, data } = message;
+
+  // Update queue status
+  workerQueue.push({ requestId, type, timestamp: Date.now() });
+
+  // Emit worker status
+  self.postMessage({
+    type: "dev-log",
+    data: {
+      scope: "Worker Pool",
+      message: `Processing ${type} request`,
+      level: "info",
+      status: "running",
+      details: { requestId, type, queueLength: workerQueue.length },
+    },
+  });
 
   try {
     if (!wasmInitialized) {
@@ -114,12 +131,47 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
       stack,
     });
 
+    // Update queue status on error
+    workerQueue = workerQueue.filter((item) => item.requestId !== requestId);
+
+    self.postMessage({
+      type: "dev-log",
+      data: {
+        scope: "Worker Pool",
+        message: `Error processing ${type} request`,
+        level: "error",
+        status: "error",
+        details: {
+          requestId,
+          type,
+          queueLength: workerQueue.length,
+          error: errMessage,
+        },
+      },
+    });
+
     // Send structured error payload to the main thread (message + stack)
     simplePostMessage({
       requestId,
       type: `${type}-error`,
       data: { message: errMessage, stack },
     } as WorkerResponse);
+  } finally {
+    // Clean up queue on completion (success or error)
+    workerQueue = workerQueue.filter((item) => item.requestId !== requestId);
+
+    if (workerQueue.length === 0) {
+      self.postMessage({
+        type: "dev-log",
+        data: {
+          scope: "Worker Pool",
+          message: "All requests completed",
+          level: "info",
+          status: "idle",
+          details: { queueLength: 0 },
+        },
+      });
+    }
   }
 };
 
