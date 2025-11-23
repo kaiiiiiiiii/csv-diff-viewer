@@ -44,7 +44,21 @@ export function handleCompare(
     hasHeaders,
   } = payload;
 
+  // Log invocation with small context (do not log raw CSV content)
+  compareLog.info("Compare handler invoked", {
+    requestId,
+    comparisonMode,
+    useBinaryEncoding: USE_BINARY_ENCODING,
+    useParallelProcessing: USE_PARALLEL_PROCESSING,
+    sourceSize: sourceRaw?.length ?? 0,
+    targetSize: targetRaw?.length ?? 0,
+    hasHeaders,
+    keyColumnCount: keyColumns?.length ?? 0,
+    excludedColumnCount: excludedColumns?.length ?? 0,
+  });
+
   if (!sourceRaw || !targetRaw) {
+    // Validate inputs early and throw; the outer try/catch will handle posting and logging
     throw new Error("Raw CSV data is required for comparison.");
   }
 
@@ -52,86 +66,156 @@ export function handleCompare(
   const wasmMemory = getWasmMemory();
   const wasmInstance = getWasmInstance();
 
-  if (USE_BINARY_ENCODING) {
-    // Use high-performance binary encoding
-    if (comparisonMode === "primary-key") {
-      emitProgress(0, "Starting comparison (Primary Key, Binary)...");
-      const resultPtr = diff_csv_primary_key_binary(
-        sourceRaw,
-        targetRaw,
-        keyColumns,
-        caseSensitive,
-        ignoreWhitespace,
-        ignoreEmptyVsNull,
-        excludedColumns,
-        hasHeaders !== false,
-        (percent: number, message: string) => emitProgress(percent, message),
-      );
+  try {
+    if (USE_BINARY_ENCODING) {
+      // Use high-performance binary encoding
+      if (comparisonMode === "primary-key") {
+        compareLog.debug("Calling WASM method", {
+          method: "diff_csv_primary_key_binary",
+          requestId,
+        });
+        emitProgress(0, "Starting comparison (Primary Key, Binary)...");
+        const resultPtr = diff_csv_primary_key_binary(
+          sourceRaw,
+          targetRaw,
+          keyColumns,
+          caseSensitive,
+          ignoreWhitespace,
+          ignoreEmptyVsNull,
+          excludedColumns,
+          hasHeaders !== false,
+          (percent: number, message: string) => emitProgress(percent, message),
+        );
 
-      // Decode binary result
-      const resultLength = get_binary_result_length();
-      const resultCapacity = get_binary_result_capacity();
-      results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
+        // Decode binary result
+        const resultLength = get_binary_result_length();
+        const resultCapacity = get_binary_result_capacity();
+        results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
 
-      // Clean up WASM memory
-      if (typeof wasmInstance?.dealloc === "function") {
-        wasmInstance.dealloc(resultPtr, resultCapacity);
+        // Log counts if present
+        if (results) {
+          compareLog.info("Decoded binary diff counts", {
+            requestId,
+            added: Array.isArray(results.added) ? results.added.length : null,
+            removed: Array.isArray(results.removed)
+              ? results.removed.length
+              : null,
+            modified: Array.isArray(results.modified)
+              ? results.modified.length
+              : null,
+            unchanged: Array.isArray(results.unchanged)
+              ? results.unchanged.length
+              : null,
+          });
+        }
+
+        // Clean up WASM memory
+        if (typeof wasmInstance?.dealloc === "function") {
+          wasmInstance.dealloc(resultPtr, resultCapacity);
+        }
+        emitProgress(100, "Comparison complete");
+      } else {
+        compareLog.debug("Calling WASM method", {
+          method: "diff_csv_binary",
+          requestId,
+        });
+        emitProgress(0, "Starting comparison (Content Match, Binary)...");
+        const resultPtr = diff_csv_binary(
+          sourceRaw,
+          targetRaw,
+          caseSensitive,
+          ignoreWhitespace,
+          ignoreEmptyVsNull,
+          excludedColumns,
+          hasHeaders !== false,
+          (percent: number, message: string) => emitProgress(percent, message),
+        );
+
+        // Decode binary result
+        const resultLength = get_binary_result_length();
+        const resultCapacity = get_binary_result_capacity();
+        results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
+        if (results) {
+          compareLog.info("Decoded binary diff counts", {
+            requestId,
+            added: Array.isArray(results.added) ? results.added.length : null,
+            removed: Array.isArray(results.removed)
+              ? results.removed.length
+              : null,
+            modified: Array.isArray(results.modified)
+              ? results.modified.length
+              : null,
+            unchanged: Array.isArray(results.unchanged)
+              ? results.unchanged.length
+              : null,
+          });
+        }
+
+        // Clean up WASM memory
+        if (typeof wasmInstance?.dealloc === "function") {
+          wasmInstance.dealloc(resultPtr, resultCapacity);
+        }
+        emitProgress(100, "Comparison complete");
       }
-      emitProgress(100, "Comparison complete");
     } else {
-      emitProgress(0, "Starting comparison (Content Match, Binary)...");
-      const resultPtr = diff_csv_binary(
-        sourceRaw,
-        targetRaw,
-        caseSensitive,
-        ignoreWhitespace,
-        ignoreEmptyVsNull,
-        excludedColumns,
-        hasHeaders !== false,
-        (percent: number, message: string) => emitProgress(percent, message),
-      );
-
-      // Decode binary result
-      const resultLength = get_binary_result_length();
-      const resultCapacity = get_binary_result_capacity();
-      results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
-
-      // Clean up WASM memory
-      if (typeof wasmInstance?.dealloc === "function") {
-        wasmInstance.dealloc(resultPtr, resultCapacity);
-      }
-      emitProgress(100, "Comparison complete");
-    }
-  } else {
-    // Use traditional JSON encoding (for debugging or compatibility)
-    if (comparisonMode === "primary-key") {
-      // Try parallel processing first if enabled
-      if (USE_PARALLEL_PROCESSING) {
-        try {
-          emitProgress(0, "Starting comparison (Primary Key, Parallel)...");
-          results = diff_csv_primary_key_parallel(
-            sourceRaw,
-            targetRaw,
-            keyColumns,
-            caseSensitive,
-            ignoreWhitespace,
-            ignoreEmptyVsNull,
-            excludedColumns,
-            hasHeaders !== false,
-            (percent: number, message: string) =>
-              emitProgress(percent, message),
-          );
-          emitProgress(100, "Comparison complete (Parallel)");
-        } catch (error) {
-          // Fallback to non-parallel if parallel fails
-          compareLog.warn(
-            "Parallel processing failed; falling back to single-threaded execution",
-            {
-              message: (error as Error).message,
-              stack: (error as Error).stack,
-            },
-          );
+      // Use traditional JSON encoding (for debugging or compatibility)
+      if (comparisonMode === "primary-key") {
+        // Try parallel processing first if enabled
+        if (USE_PARALLEL_PROCESSING) {
+          try {
+            compareLog.debug("Calling WASM method", {
+              method: "diff_csv_primary_key_parallel",
+              requestId,
+            });
+            emitProgress(0, "Starting comparison (Primary Key, Parallel)...");
+            results = diff_csv_primary_key_parallel(
+              sourceRaw,
+              targetRaw,
+              keyColumns,
+              caseSensitive,
+              ignoreWhitespace,
+              ignoreEmptyVsNull,
+              excludedColumns,
+              hasHeaders !== false,
+              (percent: number, message: string) =>
+                emitProgress(percent, message),
+            );
+            emitProgress(100, "Comparison complete (Parallel)");
+          } catch (error) {
+            // Fallback to non-parallel if parallel fails
+            compareLog.warn(
+              "Parallel processing failed; falling back to single-threaded execution",
+              {
+                message: (error as Error).message,
+                stack: (error as Error).stack,
+              },
+            );
+            emitProgress(0, "Starting comparison (Primary Key)...");
+            compareLog.debug("Calling WASM method", {
+              method: "diff_csv_primary_key",
+              requestId,
+            });
+            results = diff_csv_primary_key(
+              sourceRaw,
+              targetRaw,
+              keyColumns,
+              caseSensitive,
+              ignoreWhitespace,
+              ignoreEmptyVsNull,
+              excludedColumns,
+              hasHeaders !== false,
+              false,
+              (percent: number, message: string) =>
+                emitProgress(percent, message),
+            );
+            emitProgress(100, "Comparison complete");
+          }
+        } else {
           emitProgress(0, "Starting comparison (Primary Key)...");
+          compareLog.debug("Calling WASM method", {
+            method: "diff_csv_primary_key",
+            requestId,
+          });
           results = diff_csv_primary_key(
             sourceRaw,
             targetRaw,
@@ -148,73 +232,119 @@ export function handleCompare(
           emitProgress(100, "Comparison complete");
         }
       } else {
-        emitProgress(0, "Starting comparison (Primary Key)...");
-        results = diff_csv_primary_key(
+        compareLog.debug("Calling WASM method", {
+          method: "diff_csv",
+          requestId,
+        });
+        emitProgress(0, "Starting comparison (Content Match)...");
+        results = diff_csv(
           sourceRaw,
           targetRaw,
-          keyColumns,
           caseSensitive,
           ignoreWhitespace,
           ignoreEmptyVsNull,
           excludedColumns,
           hasHeaders !== false,
-          false,
           (percent: number, message: string) => emitProgress(percent, message),
         );
         emitProgress(100, "Comparison complete");
       }
-    } else {
-      emitProgress(0, "Starting comparison (Content Match)...");
-      results = diff_csv(
-        sourceRaw,
-        targetRaw,
-        caseSensitive,
-        ignoreWhitespace,
-        ignoreEmptyVsNull,
-        excludedColumns,
-        hasHeaders !== false,
-        (percent: number, message: string) => emitProgress(percent, message),
-      );
-      emitProgress(100, "Comparison complete");
     }
-  }
 
-  // Calculate performance metrics
-  if (currentMetrics) {
-    currentMetrics.totalTime = performance.now() - currentMetrics.startTime;
-    currentMetrics.memoryUsed = wasmMemory.buffer.byteLength / 1024 / 1024; // MB
-  }
-
-  // Post results with performance metrics using Transferable ArrayBuffers
-  const transferables: Array<Transferable> = [];
-
-  // Extract any ArrayBuffer objects from the results for zero-copy transfer
-  const seen = new WeakSet();
-  const extractTransferables = (obj: any, depth = 0): void => {
-    if (depth > MAX_TRANSFERABLE_DEPTH) return;
-
-    if (obj instanceof ArrayBuffer) {
-      transferables.push(obj);
-    } else if (ArrayBuffer.isView(obj)) {
-      transferables.push(obj.buffer);
-    } else if (obj && typeof obj === "object") {
-      // Skip if we've seen this object (circular reference)
-      if (seen.has(obj)) return;
-      seen.add(obj);
-
-      Object.values(obj).forEach((val) => extractTransferables(val, depth + 1));
+    // Calculate performance metrics
+    if (currentMetrics) {
+      currentMetrics.totalTime = performance.now() - currentMetrics.startTime;
+      currentMetrics.memoryUsed = wasmMemory.buffer.byteLength / 1024 / 1024; // MB
     }
-  };
 
-  extractTransferables(results);
+    // Make sure we have results
+    if (results === undefined || results === null) {
+      const msg = "Comparison did not return any results";
+      compareLog.error("No results from compare", { requestId, message: msg });
+      postMessage({
+        requestId,
+        type: "compare-error",
+        data: { message: msg },
+        metrics: currentMetrics || undefined,
+      });
+      return;
+    }
 
-  postMessage(
-    {
+    // Post results with performance metrics using Transferable ArrayBuffers
+    const transferables: Array<Transferable> = [];
+
+    // Extract any ArrayBuffer objects from the results for zero-copy transfer
+    const seen = new WeakSet();
+    const extractTransferables = (obj: any, depth = 0): void => {
+      if (depth > MAX_TRANSFERABLE_DEPTH) return;
+
+      if (obj instanceof ArrayBuffer) {
+        transferables.push(obj);
+      } else if (ArrayBuffer.isView(obj)) {
+        transferables.push(obj.buffer);
+      } else if (obj && typeof obj === "object") {
+        // Skip if we've seen this object (circular reference)
+        if (seen.has(obj)) return;
+        seen.add(obj);
+
+        Object.values(obj).forEach((val) =>
+          extractTransferables(val, depth + 1),
+        );
+      }
+    };
+
+    extractTransferables(results);
+
+    postMessage(
+      {
+        requestId,
+        type: "compare-complete",
+        data: results,
+        metrics: currentMetrics || undefined,
+      },
+      transferables.length > 0 ? transferables : [],
+    );
+
+    // Log success after postMessage completes
+    try {
+      const counts = {
+        added: Array.isArray(results.added) ? results.added.length : null,
+        removed: Array.isArray(results.removed) ? results.removed.length : null,
+        modified: Array.isArray(results.modified)
+          ? results.modified.length
+          : null,
+        unchanged: Array.isArray(results.unchanged)
+          ? results.unchanged.length
+          : null,
+      };
+
+      compareLog.success("Compare complete", {
+        requestId,
+        counts,
+        transferred: transferables.length,
+        metrics: currentMetrics ?? undefined,
+      });
+    } catch (logErr) {
+      // Avoid breaking the worker when logging fails
+      compareLog.warn("Failed to emit compare success log", {
+        requestId,
+        message: (logErr as Error).message,
+      });
+    }
+  } catch (err: any) {
+    const message = err?.message ?? String(err);
+    const stack = err?.stack ?? undefined;
+    compareLog.error("Compare handler threw an exception", {
       requestId,
-      type: "compare-complete",
-      data: results,
+      message,
+      stack,
+    });
+    postMessage({
+      requestId,
+      type: "compare-error",
+      data: { message, stack },
       metrics: currentMetrics || undefined,
-    },
-    transferables.length > 0 ? transferables : [],
-  );
+    });
+    return;
+  }
 }

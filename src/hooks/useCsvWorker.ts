@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import CsvWorker from "../workers/csv.worker?worker";
-import { emitDevLog } from "@/lib/dev-logger";
+import { emitDevLog, emitPerformanceLog } from "@/lib/dev-logger";
 
 interface WorkerRequest {
   id: number;
@@ -20,6 +20,9 @@ export function useCsvWorker() {
 
     worker.onmessage = (e: MessageEvent) => {
       const { requestId, type, data } = e.data;
+      // normalize operation name by removing -complete/-error suffix
+      const opName = (type as string).replace(/-(complete|error)$/, "");
+      const metrics = e.data?.metrics ?? data?.metrics;
 
       if (type === "dev-log") {
         emitDevLog(data);
@@ -32,10 +35,42 @@ export function useCsvWorker() {
 
       if (type === "progress") {
         request.onProgress?.(data.percent, data.message);
-      } else if (type === "error") {
-        request.reject(new Error(data.message));
+      } else if (
+        type === "error" ||
+        (typeof type === "string" && type.endsWith("-error"))
+      ) {
+        const message =
+          data?.message ?? data ?? "Worker reported an unknown error";
+        // Only emit a performance log for operation-specific errors like 'op-error'
+        if (typeof type === "string" && type.endsWith("-error")) {
+          try {
+            emitPerformanceLog({
+              operation: opName,
+              duration: data?.duration ?? 0,
+              status: "error",
+              metrics,
+              error: typeof message === "string" ? message : undefined,
+            });
+          } catch (err) {
+            void err; // best-effort logging — ignore errors here to avoid breaking worker handling
+          }
+        }
+        request.reject(new Error(message));
         requestMapRef.current.delete(requestId);
       } else if (type.endsWith("-complete")) {
+        // Emit a performance log for success with optional metrics
+        if (typeof type === "string" && type.endsWith("-complete")) {
+          try {
+            emitPerformanceLog({
+              operation: opName,
+              duration: data?.duration ?? 0,
+              status: "success",
+              metrics,
+            });
+          } catch (err) {
+            void err; // ignore logging errors
+          }
+        }
         request.resolve(data);
         requestMapRef.current.delete(requestId);
       }

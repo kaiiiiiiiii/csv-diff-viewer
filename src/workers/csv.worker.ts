@@ -13,7 +13,6 @@ import type {
   InitDifferPayload,
   ParsePayload,
   PerformanceMetrics,
-  WasmThreadPayload,
   WorkerRequest,
   WorkerResponse,
 } from "./types";
@@ -48,7 +47,7 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
   const message = event.data as WorkerRequest;
 
   if (message.type === "wasm_thread") {
-    const { memory, module } = message.data as WasmThreadPayload;
+    const { memory, module } = message.data;
     (self as any).wbg_rayon_start_worker(memory, module);
     return;
   }
@@ -76,8 +75,8 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
           requestId,
           data as ComparePayload,
           transferablePostMessage,
-          (percent: number, message: string) =>
-            postProgress(requestId, percent, message),
+          (percent: number, msg: string) =>
+            postProgress(requestId, percent, msg),
           metrics,
         );
         break;
@@ -94,8 +93,8 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
           requestId,
           data as DiffChunkPayload,
           simplePostMessage,
-          (percent: number, message: string) =>
-            postProgress(requestId, percent, message),
+          (percent: number, msg: string) =>
+            postProgress(requestId, percent, msg),
         );
         break;
       case "cleanup-differ":
@@ -105,11 +104,22 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
         throw new Error(`Unknown request type: ${type}`);
     }
   } catch (error: any) {
+    const errMessage = error?.message ?? String(error);
+    const stack = error?.stack ?? undefined;
+    // Log error for worker-level visibility
+    workerLog.error("Worker request failed", {
+      requestId,
+      type,
+      message: errMessage,
+      stack,
+    });
+
+    // Send structured error payload to the main thread (message + stack)
     simplePostMessage({
       requestId,
       type: `${type}-error`,
-      error: error.message ?? String(error),
-    });
+      data: { message: errMessage, stack },
+    } as WorkerResponse);
   }
 };
 
