@@ -1,5 +1,8 @@
 mod types;
 mod utils;
+mod parse;
+mod primary_key;
+mod content_match;
 pub mod core;
 mod binary;
 mod binary_encoder;
