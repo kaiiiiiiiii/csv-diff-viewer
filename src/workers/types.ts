@@ -32,11 +32,27 @@ export interface DiffChunkPayload {
   chunkSize: number;
 }
 
-export interface WorkerRequest {
-  requestId: number;
-  type: "parse" | "compare" | "init-differ" | "diff-chunk" | "cleanup-differ";
-  data: any; // Specific payload based on type
+export interface WasmThreadPayload {
+  memory: WebAssembly.Memory;
+  module: WebAssembly.Module;
 }
+
+export type WorkerRequest =
+  | {
+      requestId: number;
+      type:
+        | "parse"
+        | "compare"
+        | "init-differ"
+        | "diff-chunk"
+        | "cleanup-differ";
+      data: any; // Specific payload based on type
+    }
+  | {
+      requestId?: number;
+      type: "wasm_thread";
+      data: WasmThreadPayload;
+    };
 
 export interface WorkerResponse {
   requestId?: number;

@@ -13,6 +13,7 @@ import type {
   InitDifferPayload,
   ParsePayload,
   PerformanceMetrics,
+  WasmThreadPayload,
   WorkerRequest,
   WorkerResponse,
 } from "./types";
@@ -44,7 +45,15 @@ const transferablePostMessage = (
 };
 
 self.onmessage = async (event: MessageEvent): Promise<void> => {
-  const { requestId, type, data }: WorkerRequest = event.data;
+  const message = event.data as WorkerRequest;
+
+  if (message.type === "wasm_thread") {
+    const { memory, module } = message.data as WasmThreadPayload;
+    (self as any).wbg_rayon_start_worker(memory, module);
+    return;
+  }
+
+  const { requestId, type, data } = message;
 
   try {
     if (!wasmInitialized) {

@@ -12,14 +12,22 @@ The error occurs when:
 2. JavaScript creates non-shared `WebAssembly.Memory` or doesn't provide one
 3. Result: LinkError about shared state mismatch
 
+**Error Message**: `"LinkError: WebAssembly.instantiate(): shared state of memory import 0 (shared) is not compatible with the imported memory (not shared)"`
+
+**Expected Output After Fix**:
+
+```
+SharedArrayBuffer available: true
+crossOriginIsolated: true
+Memory created: WebAssembly.Memory {}
+Memory buffer is SharedArrayBuffer: true
+```
+
 ## Current Project State
 
 ### ✅ Already Implemented
 
-- **Build flags**: `RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory'` in `package.json` scripts
-- **Cargo.toml**: `wasm-bindgen-rayon` dependency with `parallel` feature enabled
 - **Vite config**: COOP/COEP headers for cross-origin isolation
-- **WASM context**: `src/workers/wasm-context.ts` creates shared memory and handles fallbacks
 - **GitHub Pages**: COI service worker (`public/coi-serviceworker.js`) and thread enabler (`public/enable-threads.js`) solve cross-origin isolation issues
 
 ### 🔄 Build Process
@@ -29,26 +37,58 @@ The error occurs when:
 
 ## Required Changes
 
-### 1. Rust Build Configuration (Already Done)
+### 1. Rust Build Configuration (Update Required)
 
-**File**: `src-wasm/Cargo.toml`
+**File**: `package.json`
+
+```json
+{
+  "scripts": {
+    "build:wasm": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory -C link-arg=--shared-memory -C link-arg=--max-memory=1073741824' wasm-pack build --target web --release",
+    "build:wasm:dev": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory -C link-arg=--shared-memory -C link-arg=--max-memory=1073741824' wasm-pack build --target web --dev"
+  }
+}
+```
+
+**Alternative: .cargo/config.toml**
 
 ```toml
-[features]
-default = ["parallel"]
-parallel = ["rayon", "wasm-bindgen-rayon"]
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
+  "-C", "link-arg=--shared-memory",
+  "-C", "link-arg=--import-memory",
+  "-C", "link-arg=--max-memory=1073741824"
+]
 
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-O4", "--enable-simd", "--enable-bulk-memory", "--enable-threads"]
-rustflags = ["-C", "target-feature=+atomics,+bulk-memory,+mutable-globals,+sign-ext"]
+[unstable]
+build-std = ["std", "panic_abort"]
 ```
 
-**Build command** (already in `package.json`):
+**Build command** (simplified with config.toml):
 
 ```bash
-RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory' \
-wasm-pack build --target web --release
+wasm-pack build --target web --release -Z build-std=std,panic_abort
 ```
+
+**Note**: The `-Z build-std=std,panic_abort` flag is required when using custom rustflags in `.cargo/config.toml` for WASM targets.
+
+**File**: `src-wasm/.cargo/config.toml`
+
+```toml
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
+  "-C", "link-arg=--import-memory",
+  "-C", "link-arg=--shared-memory",
+  "-C", "link-arg=--max-memory=1073741824",
+]
+
+[unstable]
+build-std = ["panic_abort", "std"]
+```
+
+**Why**: The `.cargo/config.toml` was missing the `--shared-memory` and `--max-memory` flags, which override the RUSTFLAGS from package.json scripts.
 
 ### 2. JavaScript Shared Memory Creation (Already Done)
 
@@ -68,17 +108,35 @@ if (sharedArrayBufferSupported && USE_PARALLEL_PROCESSING) {
 }
 ```
 
-### 3. Worker Thread Support (Already Done)
+### 3. Worker Thread Support
 
 **File**: `src/workers/csv.worker.ts`
 
 ```typescript
-// Already calls initWasm() which handles thread pool
-if (!wasmInitialized) {
-  await initWasm(); // This initializes thread pool if possible
-  wasmInitialized = true;
+// Handle wasm-bindgen-rayon thread worker initialization
+case "wasm_thread":
+  const { memory, module } = data as { memory: WebAssembly.Memory; module: WebAssembly.Module };
+  (self as any).wbg_rayon_start_worker(memory, module);
+  return; // Don't send response for thread workers
+```
+
+**File**: `src/workers/types.ts`
+
+```typescript
+export interface WorkerRequest {
+  requestId: number;
+  type:
+    | "parse"
+    | "compare"
+    | "init-differ"
+    | "diff-chunk"
+    | "cleanup-differ"
+    | "wasm_thread";
+  data: any;
 }
 ```
+
+**Why**: When `wasm-bindgen-rayon` spawns thread workers, they send `"wasm_thread"` messages to the main worker. The main worker must call `wbg_rayon_start_worker` to initialize these threads with the shared memory.
 
 ### 4. Vite Configuration (Already Done)
 
@@ -107,21 +165,34 @@ preview: {
 1. **Check browser support**:
 
    ```javascript
-   console.log("SharedArrayBuffer:", typeof SharedArrayBuffer !== "undefined");
-   console.log("Cross-origin isolated:", crossOriginIsolated);
+   console.log(
+     "SharedArrayBuffer available:",
+     typeof SharedArrayBuffer !== "undefined",
+   );
+   console.log("crossOriginIsolated:", crossOriginIsolated);
    ```
 
-2. **Check WASM memory**:
+2. **Check WASM memory after initialization**:
 
    ```javascript
    import { getWasmMemory } from "./wasm-context";
-   const mem = getWasmMemory();
-   console.log("Is shared:", mem.buffer instanceof SharedArrayBuffer);
+   const memory = getWasmMemory();
+   console.log("Memory created:", memory);
+   console.log(
+     "Memory buffer is SharedArrayBuffer:",
+     memory.buffer instanceof SharedArrayBuffer,
+   );
    ```
 
 3. **Check thread pool**:
+
    ```javascript
    console.log("Hardware concurrency:", navigator.hardwareConcurrency);
+   ```
+
+4. **Verify WASM exports**:
+   ```bash
+   grep "init_thread_pool\|initThreadPool" src-wasm/pkg/csv_diff_wasm.js
    ```
 
 ### Fallback Behavior
@@ -210,7 +281,7 @@ Cross-Origin-Embedder-Policy: require-corp
 
 ```bash
 # Rebuild WASM with verbose output
-cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory -C link-arg=--shared-memory' wasm-pack build --target web --release --verbose
+cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory -C link-arg=--shared-memory -C link-arg=--max-memory=1073741824' wasm-pack build --target web --release --verbose
 
 # Check WASM binary for shared memory imports
 wasm-objdump -x src-wasm/pkg/csv_diff_wasm_bg.wasm | grep -i shared
