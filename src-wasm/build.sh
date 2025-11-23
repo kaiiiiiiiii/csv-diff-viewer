@@ -113,4 +113,25 @@ ls -lh pkg/
 echo ""
 echo "Final WASM size: $(du -h pkg/csv_diff_wasm_bg.wasm | cut -f1)"
 echo ""
+echo -e "${YELLOW}Creating a small package entry to resolve worker imports...${NC}"
+
+# Create a tiny index.js so `import('../../..')` inside workerHelpers resolves
+# to the package root when bundlers look up a directory. Also write package.json
+cat > pkg/index.js << 'JS'
+// Auto-generated shim so that imports to the package root work from snippets.
+export * from './csv_diff_wasm.js';
+export { default } from './csv_diff_wasm.js';
+JS
+
+cat > pkg/package.json << 'JSON'
+{
+  "name": "csv-diff-wasm-local",
+  "type": "module",
+  "module": "csv_diff_wasm.js",
+  "main": "csv_diff_wasm.js"
+}
+JSON
+
+echo -e "${GREEN}✓ pkg/index.js and pkg/package.json created${NC}"
+echo ""
 echo -e "${GREEN}✓ Ready to use!${NC}"
