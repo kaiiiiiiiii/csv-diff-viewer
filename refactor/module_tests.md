@@ -36,3 +36,7 @@ Add targeted unit tests to the new modules (`parse.rs`, `primary_key.rs`, `conte
 ---
 
 _Tip:_ Start by porting the current tests that already reference `core::` functions into targeted module tests; this helps ensure parity while improving test coverage.
+
+## Additional notes
+
+This refactor is primarily for readability and safety; keep file changes small and validate with both `cargo test` and `npm run build:wasm` after each refactor PR.

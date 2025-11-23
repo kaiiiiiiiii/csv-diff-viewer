@@ -25,3 +25,7 @@ Make the new modules (`parse.rs`, `primary_key.rs`, `content_match.rs`) crate-le
 ---
 
 _Notes:_ The public vs crate-private decision depends on whether downstream consumers (tests, extensions) should access the modules directly. Keeping them private reduces the surface area and prevents accidental API use.
+
+## Additional notes
+
+This refactor is primarily for readability and safety; keep file changes small and validate with both `cargo test` and `npm run build:wasm` after each refactor PR.

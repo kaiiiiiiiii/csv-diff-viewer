@@ -51,3 +51,7 @@ Move shared utilities into a single module (`diff_utils.rs`) so `primary_key.rs`
 ---
 
 _Notes:_ Keep all functions `pub(crate)` unless they must be exported to JS via `lib.rs` and WASM bindings.
+
+## Additional notes
+
+This refactor is primarily for readability and safety; keep file changes small and validate with both `cargo test` and `npm run build:wasm` after each refactor PR.

@@ -41,3 +41,7 @@ Split the large test data file into multiple files grouped by related scenarios 
 1. Move `basic_with_headers` first and update tests.
 2. Run `cargo test` and fix failures related to path changes.
 3. Continue moving other groups and re-run tests.
+
+## Additional notes
+
+This refactor is primarily for readability and safety; keep file changes small and validate with both `cargo test` and `npm run build:wasm` after each refactor PR.
