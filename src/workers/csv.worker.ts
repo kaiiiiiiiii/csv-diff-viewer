@@ -1,4 +1,4 @@
-import { bufferPool, initWasm } from "./wasm-context";
+import { bufferPool, cleanupWasm, initWasm } from "./wasm-context";
 import { handleParse } from "./handlers/parse";
 import { handleCompare } from "./handlers/compare";
 import { createWorkerLogger } from "./worker-logger";
@@ -150,4 +150,24 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
 };
 
 // Cleanup on error
-self.addEventListener("error", () => bufferPool.clear());
+self.addEventListener("error", () => {
+  bufferPool.clear();
+  cleanupWasm();
+});
+
+// Cleanup when worker is terminating
+self.addEventListener("close", () => {
+  workerLog.info("Worker terminating, cleaning up resources");
+  bufferPool.clear();
+  cleanupWasm();
+});
+
+// Also cleanup on page unload to prevent memory leaks
+if (typeof self !== "undefined" && self.close) {
+  const originalClose = self.close;
+  self.close = function () {
+    bufferPool.clear();
+    cleanupWasm();
+    return originalClose.call(this);
+  };
+}

@@ -14,6 +14,7 @@ import {
   USE_PARALLEL_PROCESSING,
   getWasmInstance,
   getWasmMemory,
+  initWasmThreadPool,
 } from "../wasm-context";
 import { createWorkerLogger } from "../worker-logger";
 import type {
@@ -53,7 +54,7 @@ const emitThreadStatus = (
   }
 };
 
-export function handleCompare(
+export async function handleCompare(
   requestId: number,
   payload: ComparePayload,
   postMessage: (msg: WorkerResponse, transfer?: Array<Transferable>) => void,
@@ -140,7 +141,6 @@ export function handleCompare(
 
         // Decode binary result
         const resultLength = get_binary_result_length();
-        const resultCapacity = get_binary_result_capacity();
         results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
 
         // Log counts
@@ -162,13 +162,31 @@ export function handleCompare(
             });
             emitProgress(0, "Starting comparison (Content Match, Parallel)...");
 
-            // Emit thread status for parallel processing
+            // Initialize thread pool for optimal parallel performance
             const numThreads = Math.max(
               1,
               (typeof navigator !== "undefined"
                 ? navigator.hardwareConcurrency || 4
                 : 4) - 1,
             );
+
+            try {
+              await initWasmThreadPool(numThreads);
+              compareLog.debug("Thread pool initialized", {
+                numThreads,
+                requestId,
+              });
+            } catch (error) {
+              compareLog.warn(
+                "Failed to initialize thread pool, continuing with default",
+                {
+                  error: (error as Error).message,
+                  requestId,
+                },
+              );
+            }
+
+            // Emit thread status for parallel processing
             const perThreadTotalContent = Math.ceil(totalRowCount / numThreads);
             for (let i = 0; i < numThreads; i++) {
               emitThreadStatus(
@@ -190,42 +208,76 @@ export function handleCompare(
               excludedColumns,
               hasHeaders !== false,
               (percent: number, message: string) => {
-                // If message contains a THREAD_PROGRESS entry, parse and emit only for that thread
-                if (
-                  typeof message === "string" &&
-                  message.startsWith("THREAD_PROGRESS|")
-                ) {
-                  const parts = message.split("|");
-                  // Expected: THREAD_PROGRESS|<id>|<processed>|<perThreadTotal>
-                  if (parts.length === 4) {
-                    const threadId = parseInt(parts[1], 10);
-                    const processed = parseInt(parts[2], 10);
-                    const perThreadTotal = parseInt(parts[3], 10);
-                    if (!Number.isNaN(threadId)) {
-                      emitThreadStatus(
-                        threadId,
-                        "running",
-                        `Parallel Content Match`,
-                        percent,
-                        processed,
-                        perThreadTotal,
-                      );
+                // Check for THREAD_PROGRESS messages (both legacy and JSON formats)
+                if (typeof message === "string") {
+                  let threadProgressFound = false;
+                  
+                  // Parse legacy format: THREAD_PROGRESS|<id>|<processed>|<perThreadTotal>
+                  if (
+                    message.startsWith("THREAD_PROGRESS|") &&
+                    !message.includes("_JSON|")
+                  ) {
+                    const parts = message.split("|");
+                    if (parts.length === 4) {
+                      const threadId = parseInt(parts[1], 10);
+                      const processed = parseInt(parts[2], 10);
+                      const perThreadTotal = parseInt(parts[3], 10);
+                      if (!Number.isNaN(threadId)) {
+                        emitThreadStatus(
+                          threadId,
+                          "running",
+                          `Parallel Content Match`,
+                          percent,
+                          processed,
+                          perThreadTotal,
+                        );
+                        threadProgressFound = true;
+                      }
                     }
                   }
-                } else {
-                  // Not a per-thread message; fall back to global updates for all threads
-                  for (let i = 0; i < numThreads; i++) {
-                    emitThreadStatus(
-                      i,
-                      "running",
-                      message,
-                      percent,
-                      Math.floor((percent / 100) * totalRowCount),
-                      totalRowCount,
-                    );
+                  // Parse JSON format: THREAD_PROGRESS_JSON|{"threadId": 0, "processed": 50, "perThreadTotal": 125, "globalProgress": 75.0}
+                  else if (message.startsWith("THREAD_PROGRESS_JSON|")) {
+                    const jsonStr = message.split("|", 2)[1];
+                    try {
+                      const data = JSON.parse(jsonStr);
+                      if (
+                        typeof data.threadId === "number" &&
+                        typeof data.processed === "number" &&
+                        typeof data.perThreadTotal === "number"
+                      ) {
+                        // Use the global progress from the JSON if available, otherwise use the percent parameter
+                        const globalProgress = typeof data.globalProgress === "number" ? data.globalProgress : percent;
+                        
+                        emitThreadStatus(
+                          data.threadId,
+                          "running",
+                          `Parallel Content Match`,
+                          globalProgress,
+                          data.processed,
+                          data.perThreadTotal,
+                        );
+                        threadProgressFound = true;
+                      }
+                    } catch (e) {
+                      compareLog.warn("Failed to parse THREAD_PROGRESS_JSON", {
+                        message,
+                        error: (e as Error).message,
+                      });
+                    }
                   }
+                  
+                  // Only fall back to global updates if no thread-specific progress was found
+                  // and this is a key progress message (avoid spamming for every chunk)
+                  if (!threadProgressFound && (percent % 5 < 1 || message.includes("Complete"))) {
+                    // Update only the overall worker status, not individual threads
+                    emitProgress(percent, message);
+                  } else if (!threadProgressFound) {
+                    // Still emit progress for the main progress bar
+                    emitProgress(percent, message);
+                  }
+                } else {
+                  emitProgress(percent, message);
                 }
-                emitProgress(percent, message);
               },
             );
 
@@ -320,13 +372,31 @@ export function handleCompare(
             });
             emitProgress(0, "Starting comparison (Primary Key, Parallel)...");
 
-            // Emit thread status for parallel processing
+            // Initialize thread pool for optimal parallel performance
             const numThreads = Math.max(
               1,
               (typeof navigator !== "undefined"
                 ? navigator.hardwareConcurrency || 4
                 : 4) - 1,
             );
+
+            try {
+              await initWasmThreadPool(numThreads);
+              compareLog.debug("Thread pool initialized", {
+                numThreads,
+                requestId,
+              });
+            } catch (error) {
+              compareLog.warn(
+                "Failed to initialize thread pool, continuing with default",
+                {
+                  error: (error as Error).message,
+                  requestId,
+                },
+              );
+            }
+
+            // Emit thread status for parallel processing
             const perThreadTotalPk = Math.ceil(totalRowCount / numThreads);
             for (let i = 0; i < numThreads; i++) {
               emitThreadStatus(
@@ -349,39 +419,76 @@ export function handleCompare(
               excludedColumns,
               hasHeaders !== false,
               (percent: number, message: string) => {
-                if (
-                  typeof message === "string" &&
-                  message.startsWith("THREAD_PROGRESS|")
-                ) {
-                  const parts = message.split("|");
-                  if (parts.length === 4) {
-                    const threadId = parseInt(parts[1], 10);
-                    const processed = parseInt(parts[2], 10);
-                    const perThreadTotal = parseInt(parts[3], 10);
-                    if (!Number.isNaN(threadId)) {
-                      emitThreadStatus(
-                        threadId,
-                        "running",
-                        `Parallel CSV comparison`,
-                        percent,
-                        processed,
-                        perThreadTotal,
-                      );
+                // Check for THREAD_PROGRESS messages (both legacy and JSON formats)
+                if (typeof message === "string") {
+                  let threadProgressFound = false;
+                  
+                  // Parse legacy format: THREAD_PROGRESS|<id>|<processed>|<perThreadTotal>
+                  if (
+                    message.startsWith("THREAD_PROGRESS|") &&
+                    !message.includes("_JSON|")
+                  ) {
+                    const parts = message.split("|");
+                    if (parts.length === 4) {
+                      const threadId = parseInt(parts[1], 10);
+                      const processed = parseInt(parts[2], 10);
+                      const perThreadTotal = parseInt(parts[3], 10);
+                      if (!Number.isNaN(threadId)) {
+                        emitThreadStatus(
+                          threadId,
+                          "running",
+                          `Parallel CSV comparison`,
+                          percent,
+                          processed,
+                          perThreadTotal,
+                        );
+                        threadProgressFound = true;
+                      }
                     }
                   }
-                } else {
-                  for (let i = 0; i < numThreads; i++) {
-                    emitThreadStatus(
-                      i,
-                      "running",
-                      message,
-                      percent,
-                      Math.floor((percent / 100) * totalRowCount),
-                      totalRowCount,
-                    );
+                  // Parse JSON format: THREAD_PROGRESS_JSON|{"threadId": 0, "processed": 50, "perThreadTotal": 125, "globalProgress": 75.0}
+                  else if (message.startsWith("THREAD_PROGRESS_JSON|")) {
+                    const jsonStr = message.split("|", 2)[1];
+                    try {
+                      const data = JSON.parse(jsonStr);
+                      if (
+                        typeof data.threadId === "number" &&
+                        typeof data.processed === "number" &&
+                        typeof data.perThreadTotal === "number"
+                      ) {
+                        // Use the global progress from the JSON if available
+                        const globalProgress = typeof data.globalProgress === "number" ? data.globalProgress : percent;
+                        
+                        emitThreadStatus(
+                          data.threadId,
+                          "running",
+                          `Parallel CSV comparison`,
+                          globalProgress,
+                          data.processed,
+                          data.perThreadTotal,
+                        );
+                        threadProgressFound = true;
+                      }
+                    } catch (e) {
+                      compareLog.warn("Failed to parse THREAD_PROGRESS_JSON", {
+                        message,
+                        error: (e as Error).message,
+                      });
+                    }
                   }
+                  
+                  // Only fall back to global updates if no thread-specific progress was found
+                  // and this is a key progress message (avoid spamming for every chunk)
+                  if (!threadProgressFound && (percent % 5 < 1 || message.includes("Complete"))) {
+                    // Update only the overall worker status, not individual threads
+                    emitProgress(percent, message);
+                  } else if (!threadProgressFound) {
+                    // Still emit progress for the main progress bar
+                    emitProgress(percent, message);
+                  }
+                } else {
+                  emitProgress(percent, message);
                 }
-                emitProgress(percent, message);
               },
             );
 

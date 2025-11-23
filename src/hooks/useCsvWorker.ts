@@ -77,7 +77,15 @@ export function useCsvWorker() {
     };
 
     return () => {
+      // Clear all pending requests
+      requestMapRef.current.forEach((request) => {
+        request.reject(new Error("Worker terminated"));
+      });
+      requestMapRef.current.clear();
+
+      // Terminate worker
       worker.terminate();
+      workerRef.current = null;
     };
   }, []);
 

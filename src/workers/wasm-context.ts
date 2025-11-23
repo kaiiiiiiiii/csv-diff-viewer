@@ -42,6 +42,36 @@ export function getWasmInstance(): any {
   return getWasmModule();
 }
 
+/**
+ * Initialize the WASM thread pool with the specified number of threads
+ * This should be called before any parallel operations for optimal performance
+ */
+export async function initWasmThreadPool(numThreads?: number): Promise<void> {
+  if (!wasmInitialized) {
+    await initWasm();
+  }
+
+  const threads =
+    numThreads || Math.max(1, (navigator.hardwareConcurrency || 2) - 1);
+  threadLog.info("Initializing WASM thread pool", { threads }, "running");
+
+  try {
+    const module = getWasmModule();
+    if (typeof module.init_wasm_thread_pool === "function") {
+      module.init_wasm_thread_pool(threads);
+      threadLog.success("Thread pool initialized", { threads }, "success");
+    } else {
+      threadLog.warn("init_wasm_thread_pool not available in WASM module");
+    }
+  } catch (error: unknown) {
+    threadLog.error("Failed to initialize thread pool", {
+      message: (error as Error).message,
+      stack: (error as Error).stack,
+    });
+    throw error;
+  }
+}
+
 export function getWasmMemory(): WebAssembly.Memory {
   if (!wasmMemory) {
     throw new Error("WASM memory not available");
@@ -243,4 +273,59 @@ export async function initWasm(): Promise<void> {
   })();
 
   await wasmInitPromise;
+}
+
+/**
+ * Clean up WASM resources and memory
+ * Call this when the worker is terminating to prevent memory leaks
+ */
+export function cleanupWasm(): void {
+  if (!wasmInitialized) {
+    return;
+  }
+
+  // Clear buffer pool to release references
+  bufferPool.clear();
+
+  // Try to deallocate any remaining WASM memory
+  if (wasmModule && wasmModule.dealloc) {
+    try {
+      wasmModule.dealloc();
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+
+  // Try to terminate thread pool if it exists
+  if (wasmModule) {
+    try {
+      // Some WASM modules have a thread pool termination function
+      if (typeof (wasmModule as any).terminate_thread_pool === "function") {
+        (wasmModule as any).terminate_thread_pool();
+      }
+    } catch {
+      // Ignore if not available
+    }
+  }
+
+  // Force garbage collection if available
+  if (
+    typeof window !== "undefined" &&
+    "gc" in window &&
+    typeof (window as any).gc === "function"
+  ) {
+    try {
+      (window as any).gc();
+    } catch {
+      // Ignore if gc is not available
+    }
+  }
+
+  // Reset references
+  wasmModule = null;
+  wasmMemory = null;
+  wasmInitialized = false;
+  wasmInitPromise = null;
+
+  wasmLog.info("WASM resources cleaned up");
 }

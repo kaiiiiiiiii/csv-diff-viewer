@@ -104,6 +104,17 @@ export function useWorkerStatus() {
       }),
     );
     updateWorkerStatus({ threads });
+
+    // Cleanup function to reset state on unmount
+    return () => {
+      setWorkerStatus({
+        isActive: false,
+        queueLength: 0,
+        threads: [],
+        memoryUsage: undefined,
+        currentOperation: undefined,
+      });
+    };
   }, [updateWorkerStatus]);
 
   return { workerStatus, updateWorkerStatus, updateThreadStatus };

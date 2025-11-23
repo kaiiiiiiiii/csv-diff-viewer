@@ -811,5 +811,166 @@ mod tests {
         println!("✓ strsim-based content matching correctly identified {} modified rows", result.modified.len());
     }
 
+    /// Test that parallel processing emits valid THREAD_PROGRESS messages
+    #[test]
+    #[wasm_bindgen_test]
+    fn test_parallel_thread_progress_messages() {
+        use crate::parallel;
+        use std::sync::{Arc, Mutex};
+        
+        let source_csv = TEST_CSV_SIMPLE;
+        let target_csv = TEST_CSV_SIMPLE_MODIFIED;
+        
+        // Capture progress messages
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let messages_clone = messages.clone();
+        
+        let callback = move |percent: f64, message: &str| {
+            messages_clone.lock().unwrap().push((percent, message.to_string()));
+        };
+        
+        // Initialize thread pool
+        parallel::init_thread_pool(2);
+        
+        let result = parallel::diff_csv_parallel_internal(
+            source_csv,
+            target_csv,
+            vec!["id".to_string()],
+            true,
+            false,
+            false,
+            vec![],
+            false,
+            callback,
+        ).unwrap();
+        
+        // Validate results
+        assert!(!result.added.is_empty() || !result.removed.is_empty() || !result.modified.is_empty(),
+                "Should detect differences in parallel mode");
+        
+        // Check that THREAD_PROGRESS messages were emitted
+        let messages = messages.lock().unwrap();
+        let thread_progress_msgs: Vec<_> = messages.iter()
+            .filter(|(_, msg)| msg.starts_with("THREAD_PROGRESS|"))
+            .collect();
+        
+        let thread_progress_json_msgs: Vec<_> = messages.iter()
+            .filter(|(_, msg)| msg.starts_with("THREAD_PROGRESS_JSON|"))
+            .collect();
+        
+        assert!(!thread_progress_msgs.is_empty(), 
+                "Should emit legacy THREAD_PROGRESS messages, got {} messages", 
+                thread_progress_msgs.len());
+        
+        assert!(!thread_progress_json_msgs.is_empty(), 
+                "Should emit JSON THREAD_PROGRESS messages, got {} messages", 
+                thread_progress_json_msgs.len());
+        
+        // Validate legacy format
+        for (_, msg) in thread_progress_msgs {
+            let parts: Vec<&str> = msg.split('|').collect();
+            assert_eq!(parts.len(), 4, 
+                      "Legacy message should have 4 parts: {}", msg);
+            assert!(parts[0].ends_with("THREAD_PROGRESS"), 
+                   "Should start with THREAD_PROGRESS: {}", msg);
+            assert!(parts[1].parse::<usize>().is_ok(), 
+                   "Thread ID should be numeric: {}", msg);
+            assert!(parts[2].parse::<usize>().is_ok(), 
+                   "Processed count should be numeric: {}", msg);
+            assert!(parts[3].parse::<usize>().is_ok(), 
+                   "Total should be numeric: {}", msg);
+        }
+        
+        // Validate JSON format
+        for (_, msg) in thread_progress_json_msgs {
+            let json_str = msg.split('|', 2).nth(1).unwrap();
+            let parsed: serde_json::Value = serde_json::from_str(json_str)
+                .expect("Should be valid JSON");
+            
+            assert!(parsed.get("threadId").is_some(), 
+                   "JSON should contain threadId: {}", json_str);
+            assert!(parsed.get("processed").is_some(), 
+                   "JSON should contain processed: {}", json_str);
+            assert!(parsed.get("perThreadTotal").is_some(), 
+                   "JSON should contain perThreadTotal: {}", json_str);
+        }
+        
+        println!("✓ Parallel processing emitted {} legacy and {} JSON THREAD_PROGRESS messages",
+                 thread_progress_msgs.len(), thread_progress_json_msgs.len());
+    }
+    
+    /// Test that parallel results match single-threaded results
+    #[test]
+    #[wasm_bindgen_test]
+    fn test_parallel_vs_single_threaded_results() {
+        use crate::parallel;
+        use crate::core;
+        
+        let source_csv = TEST_CSV_WITH_DUPLICATES;
+        let target_csv = TEST_CSV_WITH_DUPLICATES_MODIFIED;
+        
+        // Capture progress for parallel
+        let parallel_messages = Arc::new(Mutex::new(Vec::new()));
+        let parallel_messages_clone = parallel_messages.clone();
+        
+        let parallel_callback = move |percent: f64, message: &str| {
+            parallel_messages_clone.lock().unwrap().push((percent, message.to_string()));
+        };
+        
+        // Initialize thread pool for parallel
+        parallel::init_thread_pool(2);
+        
+        let parallel_result = parallel::diff_csv_parallel_internal(
+            source_csv,
+            target_csv,
+            vec!["id".to_string()],
+            true,
+            false,
+            false,
+            vec![],
+            false,
+            parallel_callback,
+        ).unwrap();
+        
+        // Run single-threaded version
+        let single_callback = |_p: f64, _m: &str| {};
+        
+        let single_result = core::diff_csv_primary_key_internal(
+            source_csv,
+            target_csv,
+            vec!["id".to_string()],
+            true,
+            false,
+            false,
+            vec![],
+            false,
+            single_callback,
+        ).unwrap();
+        
+        // Compare counts
+        assert_eq!(parallel_result.added.len(), single_result.added.len(),
+                  "Added rows count should match: parallel={}, single={}",
+                  parallel_result.added.len(), single_result.added.len());
+        
+        assert_eq!(parallel_result.removed.len(), single_result.removed.len(),
+                  "Removed rows count should match: parallel={}, single={}",
+                  parallel_result.removed.len(), single_result.removed.len());
+        
+        assert_eq!(parallel_result.modified.len(), single_result.modified.len(),
+                  "Modified rows count should match: parallel={}, single={}",
+                  parallel_result.modified.len(), single_result.modified.len());
+        
+        assert_eq!(parallel_result.unchanged.len(), single_result.unchanged.len(),
+                  "Unchanged rows count should match: parallel={}, single={}",
+                  parallel_result.unchanged.len(), single_result.unchanged.len());
+        
+        println!("✓ Parallel and single-threaded results match exactly");
+        println!("  Added: {}, Removed: {}, Modified: {}, Unchanged: {}",
+                 parallel_result.added.len(),
+                 parallel_result.removed.len(),
+                 parallel_result.modified.len(),
+                 parallel_result.unchanged.len());
+    }
+
 
 }

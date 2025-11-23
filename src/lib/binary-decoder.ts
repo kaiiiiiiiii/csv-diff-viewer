@@ -95,7 +95,7 @@ export class BinaryDecoder {
    */
   decode(): DiffResult {
     // Read header
-    const totalRows = this.readU32();
+    const _totalRows = this.readU32();
     const addedCount = this.readU32();
     const removedCount = this.readU32();
     const modifiedCount = this.readU32();
@@ -110,7 +110,7 @@ export class BinaryDecoder {
 
     // Read added rows
     for (let i = 0; i < addedCount; i++) {
-      const rowType = this.readU8(); // Should be 1
+      const _rowType = this.readU8(); // Should be 1
       const key = this.readString();
       const targetRow = this.readRowData();
       result.added.push({ key, targetRow });
@@ -118,7 +118,7 @@ export class BinaryDecoder {
 
     // Read removed rows
     for (let i = 0; i < removedCount; i++) {
-      const rowType = this.readU8(); // Should be 2
+      const _rowType = this.readU8(); // Should be 2
       const key = this.readString();
       const sourceRow = this.readRowData();
       result.removed.push({ key, sourceRow });
@@ -126,7 +126,7 @@ export class BinaryDecoder {
 
     // Read modified rows
     for (let i = 0; i < modifiedCount; i++) {
-      const rowType = this.readU8(); // Should be 3
+      const _rowType = this.readU8(); // Should be 3
       const key = this.readString();
       const sourceRow = this.readRowData();
       const targetRow = this.readRowData();
@@ -145,7 +145,7 @@ export class BinaryDecoder {
 
     // Read unchanged rows
     for (let i = 0; i < unchangedCount; i++) {
-      const rowType = this.readU8(); // Should be 4
+      const _rowType = this.readU8(); // Should be 4
       const key = this.readString();
       const row = this.readRowData();
       result.unchanged.push({ key, row });

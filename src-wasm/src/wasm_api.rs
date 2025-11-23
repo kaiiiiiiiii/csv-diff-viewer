@@ -363,3 +363,11 @@ pub fn diff_csv_parallel_binary(
     std::mem::forget(binary_data); // Don't drop, JS will read it
     Ok(ptr)
 }
+
+/// Initialize the Rayon thread pool for parallel processing
+/// This should be called before any parallel operations to ensure optimal thread distribution
+#[wasm_bindgen]
+pub fn init_wasm_thread_pool(num_threads: usize) -> Result<(), JsValue> {
+    crate::parallel::init_thread_pool(num_threads);
+    Ok(())
+}

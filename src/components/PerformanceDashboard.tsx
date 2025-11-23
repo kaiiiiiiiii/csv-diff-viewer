@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, Cpu, HardDrive, Zap } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Activity, Cpu, Zap } from "lucide-react";
 import type { DevLogEvent, PerformanceLogEvent } from "@/lib/dev-logger";
-import type { ThreadStatus, WorkerStatus } from "@/hooks/useWorkerStatus";
+import type { ThreadStatus } from "@/hooks/useWorkerStatus";
 import {
   DEV_LOG_EVENT,
   PERFORMANCE_LOG_EVENT,
@@ -140,6 +140,16 @@ export const PerformanceDashboard: React.FC = () => {
     return () => {
       window.removeEventListener(DEV_LOG_EVENT, handleDevLog as EventListener);
     };
+  }, [isVisible]);
+
+  // Cleanup logs when component unmounts or becomes invisible
+  useEffect(() => {
+    if (!isVisible) {
+      // Clear logs when hidden to free memory
+      setOperations([]);
+      setDevLogs([]);
+      setMemoryInfo(null);
+    }
   }, [isVisible]);
 
   if (!isVisible) {

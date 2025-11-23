@@ -8,10 +8,20 @@ use rayon::prelude::*;
 use strsim::jaro_winkler;
 
 /// Initialize the thread pool for parallel processing
-/// Currently a no-op for WASM compatibility
-pub fn init_thread_pool(_num_threads: usize) {
-    // In WASM, threading is handled differently
-    // This is just a placeholder for now
+/// /// When using rayon in WASM, this will configure the thread pool size
+/// to match the requested number of threads. This should be called before
+/// any parallel operations to ensure optimal thread distribution.
+/// /// # Arguments
+/// * `num_threads` - Number of threads to configure in the pool
+pub fn init_thread_pool(num_threads: usize) {
+    // Configure rayon thread pool for WASM
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build_global()
+        .unwrap_or_else(|e| {
+            // Log warning but don't panic - rayon may already be initialized
+            eprintln!("Warning: Failed to initialize thread pool: {}", e);
+        });
 }
 
 /// Parallel comparison of target rows against source map
@@ -152,11 +162,31 @@ where
         let progress = 60.0 + (processed_keys as f64 / total_keys as f64) * 40.0;
         // Emit global progress
         on_progress(progress, &format!("Comparing rows... ({}/{})", processed_keys, total_keys));
-        // Emit per-thread progress lines in simple parseable format: THREAD_PROGRESS|<id>|<processed>|<per_thread_total>
-        let per_thread_total = (total_keys + num_threads - 1) / num_threads;
+        
+        // Calculate estimated per-thread totals based on chunk distribution
+        // Rayon uses work-stealing, so this is an approximation but better than showing total for each thread
+        let per_thread_total = if total_keys >= num_threads {
+            total_keys / num_threads + (total_keys % num_threads != 0) as usize
+        } else {
+            1
+        };
+        
+        // Emit per-thread progress in both legacy and JSON formats for compatibility
         for i in 0..num_threads {
             let processed_i = per_thread_counters[i].load(Ordering::Relaxed);
-            on_progress(progress, &format!("THREAD_PROGRESS|{}|{}|{}", i, processed_i, per_thread_total));
+            
+            // Only emit progress if this thread has actually processed work
+            if processed_i > 0 || i < (total_keys % num_threads) {
+                // Legacy format: THREAD_PROGRESS|<id>|<processed>|<perThreadTotal>
+                on_progress(progress, &format!("THREAD_PROGRESS|{}|{}|{}", i, processed_i, per_thread_total));
+                
+                // New JSON format: THREAD_PROGRESS_JSON|{{"threadId": 0, "processed": 50, "perThreadTotal": 125, "globalProgress": 75.0}}
+                let json_msg = format!(
+                    "THREAD_PROGRESS_JSON|{{\"threadId\":{},\"processed\":{},\"perThreadTotal\":{},\"globalProgress\":{}}}",
+                    i, processed_i, per_thread_total, progress
+                );
+                on_progress(progress, &json_msg);
+            }
         }
     }
     
@@ -540,11 +570,29 @@ where
         processed_unmatched += chunk.len();
         let progress = 50.0 + (processed_unmatched as f64 / total_unmatched as f64) * 50.0;
         on_progress(progress, &format!("Fuzzy matching in parallel... ({}/{})", processed_unmatched, total_unmatched));
-        // Emit per-thread progress messages
-        let per_thread_total = (total_unmatched + num_threads - 1) / num_threads;
+        // Calculate per-thread total for fuzzy matching
+        let per_thread_total = if total_unmatched >= num_threads {
+            total_unmatched / num_threads + (total_unmatched % num_threads != 0) as usize
+        } else {
+            1
+        };
+        
+        // Emit per-thread progress with improved accuracy
         for i in 0..num_threads {
             let processed_i = fuzzy_per_thread_counters[i].load(Ordering::Relaxed);
-            on_progress(progress, &format!("THREAD_PROGRESS|{}|{}|{}", i, processed_i, per_thread_total));
+            
+            // Only emit progress if this thread has actually processed work
+            if processed_i > 0 || i < (total_unmatched % num_threads) {
+                // Legacy format
+                on_progress(progress, &format!("THREAD_PROGRESS|{}|{}|{}", i, processed_i, per_thread_total));
+                
+                // JSON format with global progress
+                let json_msg = format!(
+                    "THREAD_PROGRESS_JSON|{{\"threadId\":{},\"processed\":{},\"perThreadTotal\":{},\"globalProgress\":{}}}",
+                    i, processed_i, per_thread_total, progress
+                );
+                on_progress(progress, &json_msg);
+            }
         }
     }
 

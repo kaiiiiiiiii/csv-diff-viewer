@@ -123,6 +123,18 @@ function Index() {
     }
   }, [results]);
 
+  // Cleanup function when component unmounts
+  useEffect(() => {
+    return () => {
+      // Clear any大型数据结构以释放内存
+      setResults(null);
+      setSourceData(null);
+      setTargetData(null);
+      setAvailableColumns([]);
+      routeLogger.info("Component unmounted, resources cleaned up");
+    };
+  }, [routeLogger]);
+
   const handleSourceChange = async (text: string, name: string) => {
     setSourceData({ text, name });
     setHeaderDetectionWarning(null);
