@@ -27,8 +27,11 @@ echo "Profile: $PROFILE"
 echo "Target: wasm32-unknown-unknown"
 echo ""
 
-# Set required flags for atomics/threading
-export RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
+# Set required flags for atomics/threading and shared memory imports
+# These flags are required when building wasm-bindgen + wasm-bindgen-rayon
+# so that the wasm module exports/imports a shared memory that can be
+# cloned/transferred across workers.
+export RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory -C link-arg=--shared-memory -C link-arg=--max-memory=1073741824 -C link-arg=--export=__wasm_init_tls -C link-arg=--export=__tls_size -C link-arg=--export=__tls_align -C link-arg=--export=__tls_base"
 
 # Clean previous build artifacts
 echo -e "${YELLOW}Cleaning previous builds...${NC}"
