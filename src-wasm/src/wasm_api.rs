@@ -341,3 +341,85 @@ pub fn get_streaming_config() -> Result<JsValue, JsValue> {
     js_sys::Reflect::set(&obj, &"progressUpdateInterval".into(), &config.progress_update_interval.into())?;
     Ok(obj.into())
 }
+
+#[wasm_bindgen]
+pub fn diff_csv_parallel(
+    source_csv: &str,
+    target_csv: &str,
+    case_sensitive: bool,
+    ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
+    excluded_columns_val: JsValue,
+    has_headers: bool,
+    on_progress: &Function,
+) -> Result<JsValue, JsValue> {
+    let excluded_columns: Vec<String> = serde_wasm_bindgen::from_value(excluded_columns_val)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let callback = |progress: f64, message: &str| {
+        let this = JsValue::NULL;
+        let _ = on_progress.call2(&this, &JsValue::from_f64(progress), &JsValue::from_str(message));
+    };
+
+    let result = crate::parallel::diff_csv_content_match_parallel(
+        source_csv,
+        target_csv,
+        case_sensitive,
+        ignore_whitespace,
+        ignore_empty_vs_null,
+        excluded_columns,
+        has_headers,
+        callback
+    ).map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+    Ok(result.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))?)
+}
+
+#[wasm_bindgen]
+pub fn diff_csv_parallel_binary(
+    source_csv: &str,
+    target_csv: &str,
+    case_sensitive: bool,
+    ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
+    excluded_columns_val: JsValue,
+    has_headers: bool,
+    on_progress: &Function,
+) -> Result<*mut u8, JsValue> {
+    let excluded_columns: Vec<String> = serde_wasm_bindgen::from_value(excluded_columns_val)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let callback = |progress: f64, message: &str| {
+        let this = JsValue::NULL;
+        let _ = on_progress.call2(&this, &JsValue::from_f64(progress), &JsValue::from_str(message));
+    };
+
+    let result = crate::parallel::diff_csv_content_match_parallel(
+        source_csv,
+        target_csv,
+        case_sensitive,
+        ignore_whitespace,
+        ignore_empty_vs_null,
+        excluded_columns,
+        has_headers,
+        callback
+    ).map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    // Encode to binary format
+    let mut encoder = BinaryEncoder::new();
+    encoder.encode_diff_result(&result);
+    let mut binary_data = encoder.into_vec();
+
+    // Return pointer to the binary data
+    let ptr = binary_data.as_mut_ptr();
+    let len = binary_data.len();
+    let capacity = binary_data.capacity();
+
+    // Store metadata for retrieval/deallocation on the JS side via memory module
+    set_last_binary_result_length(len);
+    set_last_binary_result_capacity(capacity);
+
+    std::mem::forget(binary_data); // Don't drop, JS will read it
+    Ok(ptr)
+}

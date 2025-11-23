@@ -1,6 +1,7 @@
 import {
   diff_csv,
   diff_csv_binary,
+  diff_csv_parallel_binary,
   diff_csv_primary_key,
   diff_csv_primary_key_binary,
   diff_csv_primary_key_parallel,
@@ -148,43 +149,127 @@ export function handleCompare(
         releaseBinaryBuffer(resultPtr, resultCapacity);
         emitProgress(100, "Comparison complete");
       } else {
-        compareLog.debug("Calling WASM method", {
-          method: "diff_csv_binary",
-          requestId,
-        });
-        emitProgress(0, "Starting comparison (Content Match, Binary)...");
-        const resultPtr = diff_csv_binary(
-          sourceRaw,
-          targetRaw,
-          caseSensitive,
-          ignoreWhitespace,
-          ignoreEmptyVsNull,
-          excludedColumns,
-          hasHeaders !== false,
-          (percent: number, message: string) => emitProgress(percent, message),
-        );
+        if (USE_PARALLEL_PROCESSING) {
+          try {
+            compareLog.debug("Calling WASM method", {
+              method: "diff_csv_parallel_binary",
+              requestId,
+            });
+            emitProgress(0, "Starting comparison (Content Match, Parallel)...");
 
-        // Decode binary result
-        const resultLength = get_binary_result_length();
-        const resultCapacity = get_binary_result_capacity();
-        results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
-        compareLog.info("Decoded binary diff counts", {
-          requestId,
-          added: Array.isArray(results.added) ? results.added.length : null,
-          removed: Array.isArray(results.removed)
-            ? results.removed.length
-            : null,
-          modified: Array.isArray(results.modified)
-            ? results.modified.length
-            : null,
-          unchanged: Array.isArray(results.unchanged)
-            ? results.unchanged.length
-            : null,
-        });
+            // Emit thread status for parallel processing
+            const numThreads = Math.max(
+              1,
+              (typeof navigator !== "undefined"
+                ? navigator.hardwareConcurrency || 4
+                : 4) - 1,
+            );
+            for (let i = 0; i < numThreads; i++) {
+              emitThreadStatus(i, "running", "Parallel Content Match");
+            }
 
-        // Clean up WASM memory
-        releaseBinaryBuffer(resultPtr, resultCapacity);
-        emitProgress(100, "Comparison complete");
+            const resultPtr = diff_csv_parallel_binary(
+              sourceRaw,
+              targetRaw,
+              caseSensitive,
+              ignoreWhitespace,
+              ignoreEmptyVsNull,
+              excludedColumns,
+              hasHeaders !== false,
+              (percent: number, message: string) => {
+                // Update thread progress
+                for (let i = 0; i < numThreads; i++) {
+                  emitThreadStatus(
+                    i,
+                    "running",
+                    message,
+                    percent,
+                    Math.floor((percent / 100) * sourceRaw.split("\n").length),
+                    sourceRaw.split("\n").length,
+                  );
+                }
+                emitProgress(percent, message);
+              },
+            );
+
+            // Decode binary result
+            const resultLength = get_binary_result_length();
+            const resultCapacity = get_binary_result_capacity();
+            results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
+            releaseBinaryBuffer(resultPtr, resultCapacity);
+
+            // Mark threads as completed
+            for (let i = 0; i < numThreads; i++) {
+              emitThreadStatus(i, "completed", "Comparison complete");
+            }
+
+            emitProgress(100, "Comparison complete (Parallel)");
+          } catch (error) {
+            compareLog.warn(
+              "Parallel processing failed; falling back to single-threaded binary execution",
+              {
+                message: (error as Error).message,
+                stack: (error as Error).stack,
+              },
+            );
+            // Fallback to binary
+            const resultPtr = diff_csv_binary(
+              sourceRaw,
+              targetRaw,
+              caseSensitive,
+              ignoreWhitespace,
+              ignoreEmptyVsNull,
+              excludedColumns,
+              hasHeaders !== false,
+              (percent: number, message: string) =>
+                emitProgress(percent, message),
+            );
+            const resultLength = get_binary_result_length();
+            const resultCapacity = get_binary_result_capacity();
+            results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
+            releaseBinaryBuffer(resultPtr, resultCapacity);
+            emitProgress(100, "Comparison complete");
+          }
+        } else {
+          compareLog.debug("Calling WASM method", {
+            method: "diff_csv_binary",
+            requestId,
+          });
+          emitProgress(0, "Starting comparison (Content Match, Binary)...");
+          const resultPtr = diff_csv_binary(
+            sourceRaw,
+            targetRaw,
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            excludedColumns,
+            hasHeaders !== false,
+            (percent: number, message: string) =>
+              emitProgress(percent, message),
+          );
+
+          // Decode binary result
+          const resultLength = get_binary_result_length();
+          const resultCapacity = get_binary_result_capacity();
+          results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
+          compareLog.info("Decoded binary diff counts", {
+            requestId,
+            added: Array.isArray(results.added) ? results.added.length : null,
+            removed: Array.isArray(results.removed)
+              ? results.removed.length
+              : null,
+            modified: Array.isArray(results.modified)
+              ? results.modified.length
+              : null,
+            unchanged: Array.isArray(results.unchanged)
+              ? results.unchanged.length
+              : null,
+          });
+
+          // Clean up WASM memory
+          releaseBinaryBuffer(resultPtr, resultCapacity);
+          emitProgress(100, "Comparison complete");
+        }
       }
     } else {
       // Use traditional JSON encoding (for debugging or compatibility)
