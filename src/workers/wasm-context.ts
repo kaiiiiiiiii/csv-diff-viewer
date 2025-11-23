@@ -60,28 +60,6 @@ export async function initWasm(): Promise<void> {
       "[CSV Worker] glue.default?.Module exists:",
       !!(glue.default && glue.default.Module),
     );
-    wasmModule = glue.default || glue;
-    wasmMemory = glue.memory || null;
-
-    try {
-      console.log("[CSV Worker] About to call init_thread_pool...");
-      console.log(
-        "[CSV Worker] init_thread_pool exists:",
-        !!glue.init_thread_pool,
-      );
-      console.log(
-        "[CSV Worker] typeof glue.init_thread_pool:",
-        typeof glue.init_thread_pool,
-      );
-      glue.init_thread_pool?.();
-      console.log("[CSV Worker] init_thread_pool called successfully");
-    } catch (e: unknown) {
-      console.error(
-        "[CSV Worker] Thread pool init failed:",
-        e,
-        (e as Error).stack || (e as any).stack,
-      );
-    }
 
     console.log(
       "[CSV Worker] Fetching WASM binary from src-wasm/pkg/csv_diff_wasm_bg.wasm...",
@@ -106,9 +84,48 @@ export async function initWasm(): Promise<void> {
     const wasmArrayBuffer = await response.arrayBuffer();
     const wasmBytes = new Uint8Array(wasmArrayBuffer);
     console.log("[CSV Worker] WASM bytes loaded, length:", wasmBytes.length);
+
+    // Create shared memory if supported
+    let memory: WebAssembly.Memory | undefined;
+    if (typeof SharedArrayBuffer !== "undefined") {
+      console.log("[CSV Worker] Creating SharedArrayBuffer memory...");
+      memory = new WebAssembly.Memory({
+        initial: 20,
+        maximum: 16384,
+        shared: true,
+      });
+    } else {
+      console.log(
+        "[CSV Worker] SharedArrayBuffer not supported, using default memory",
+      );
+    }
+
     console.log("[CSV Worker] About to call initSync(wasmBytes)...");
-    glue.initSync(wasmBytes);
+    glue.initSync({ module: wasmBytes, memory });
     console.log("[CSV Worker] initSync completed successfully");
+
+    wasmModule = glue.default || glue;
+    wasmMemory = glue.memory || null;
+
+    try {
+      console.log("[CSV Worker] About to call init_thread_pool...");
+      console.log(
+        "[CSV Worker] init_thread_pool exists:",
+        !!glue.init_thread_pool,
+      );
+      if (glue.init_thread_pool) {
+        await glue.init_thread_pool(navigator.hardwareConcurrency);
+        console.log("[CSV Worker] init_thread_pool called successfully");
+      } else {
+        console.log("[CSV Worker] init_thread_pool not found");
+      }
+    } catch (e: unknown) {
+      console.error(
+        "[CSV Worker] Thread pool init failed:",
+        e,
+        (e as Error).stack || String(e),
+      );
+    }
 
     wasmInitialized = true;
     console.log("[CSV Worker] WASM init complete");

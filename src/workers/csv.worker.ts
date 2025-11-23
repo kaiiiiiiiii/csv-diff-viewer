@@ -1,5 +1,4 @@
 import { bufferPool, initWasm } from "./wasm-context";
-import { initThreadPool } from "../../src-wasm/pkg/csv_diff_wasm.js";
 import { handleParse } from "./handlers/parse";
 import { handleCompare } from "./handlers/compare";
 import {
@@ -48,7 +47,6 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
   try {
     if (!wasmInitialized) {
       await initWasm();
-      initThreadPool(navigator.hardwareConcurrency);
       console.log("Cross-origin isolated:", crossOriginIsolated);
       console.log(
         "SharedArrayBuffer available:",
@@ -66,7 +64,7 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
       case "parse":
         handleParse(requestId, data as ParsePayload, simplePostMessage);
         break;
-      case "compare":
+      case "compare": {
         const metrics: PerformanceMetrics = { startTime: performance.now() };
         handleCompare(
           requestId,
@@ -77,6 +75,7 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
           metrics,
         );
         break;
+      }
       case "init-differ":
         handleInitDiffer(
           requestId,

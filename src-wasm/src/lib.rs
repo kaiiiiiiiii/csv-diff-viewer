@@ -2,6 +2,7 @@ mod types;
 mod utils;
 pub mod core;
 mod binary;
+mod binary_encoder;
 mod profiling;
 pub mod parallel;
 mod streaming;
@@ -14,7 +15,7 @@ use serde::Serialize;
 use js_sys::Function;
 use crate::types::ParseResult;
 use crate::utils::record_to_hashmap;
-use crate::binary::BinaryEncoder;
+use crate::binary_encoder::BinaryEncoder;
 
 use rayon::prelude::*;
 use std::time::Instant;
