@@ -107,11 +107,11 @@ export async function initWasm(): Promise<void> {
 
       if (sharedArrayBufferSupported && USE_PARALLEL_PROCESSING) {
         wasmLog.info("Creating SharedArrayBuffer memory", {
-          initialPages: 20,
+          initialPages: 21,
           maxPages: 16384,
         });
         memory = new WebAssembly.Memory({
-          initial: 20,
+          initial: 21,
           maximum: 16384,
           shared: true,
         });
