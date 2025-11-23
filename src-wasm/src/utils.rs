@@ -3,16 +3,6 @@ use csv::StringRecord;
 use ahash::AHashMap;
 use strsim::{jaro_winkler, normalized_levenshtein};
 
-pub fn normalize_value(value: &str, case_sensitive: bool, ignore_whitespace: bool) -> String {
-    let mut val = value.to_string();
-    if ignore_whitespace {
-        val = val.trim().to_string();
-    }
-    if !case_sensitive {
-        val = val.to_lowercase();
-    }
-    val
-}
 
 pub fn is_empty_or_null(value: &str) -> bool {
     let v = value.trim();
@@ -87,19 +77,9 @@ pub fn record_to_hashmap(
         .collect()
 }
 
-/// Calculate string similarity using Jaro-Winkler algorithm.
-/// Returns a value between 0.0 (completely different) and 1.0 (identical).
-/// Best for short strings like names and identifiers.
-pub fn similarity_jaro_winkler(s1: &str, s2: &str) -> f64 {
-    jaro_winkler(s1, s2)
-}
-
-/// Calculate string similarity using normalized Levenshtein distance.
-/// Returns a value between 0.0 (completely different) and 1.0 (identical).
-/// Good for general-purpose string comparison.
-pub fn similarity_levenshtein(s1: &str, s2: &str) -> f64 {
-    normalized_levenshtein(s1, s2)
-}
+/// Calculate row similarity score using strsim algorithms.
+/// Combines Jaro-Winkler for short fields and Levenshtein for longer text.
+/// Returns a value between 0.0 and 1.0 where higher means more similar.
 
 /// Calculate row similarity score using strsim algorithms.
 /// Combines Jaro-Winkler for short fields and Levenshtein for longer text.

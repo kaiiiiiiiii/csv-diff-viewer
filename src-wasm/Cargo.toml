@@ -36,6 +36,7 @@ opt-level = 3       # Optimize for speed (changed from 'z' for size to '3' for s
 lto = "fat"         # Fat link-time optimization for maximum performance
 codegen-units = 1   # Better optimization (single codegen unit)
 strip = true        # Strip symbols
+panic = "abort"     # Use abort instead of unwind for smaller code size
 
 # Browser compatibility: SIMD, bulk memory, and threads require:
 # - Chrome/Edge 91+ (June 2021)

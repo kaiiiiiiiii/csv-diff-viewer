@@ -84,7 +84,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             `,
           }}
         />
-        <script src="./enable-threads.js"></script>
+        <script type="module" src="./enable-threads.js"></script>
       </head>
       <body>
         <ThemeProvider defaultTheme="system" storageKey="theme">

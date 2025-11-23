@@ -4,9 +4,11 @@
   "type": "module",
   "scripts": {
     "build": "npm run build:wasm && vite build",
-    "build:wasm": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory' wasm-pack build --target web --release --out-dir ../wasm -- -Z build-std=panic_abort,std",
+    "build:wasm": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory' wasm-pack build --target web --release",
+    "build:wasm:dev": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory' wasm-pack build --target web --dev",
     "check": "prettier --write . && eslint --fix",
     "dev": "vite dev --port 3000",
+    "dev:wasm": "npm run build:wasm:dev && vite dev --port 3000",
     "format": "prettier",
     "lint": "eslint",
     "serve": "vite preview",

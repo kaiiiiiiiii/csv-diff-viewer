@@ -83,9 +83,32 @@ export async function initWasm(): Promise<void> {
       );
     }
 
-    console.log("[CSV Worker] Attempting initSync...");
-    glue.initSync?.();
-    console.log("[CSV Worker] initSync attempted");
+    console.log(
+      "[CSV Worker] Fetching WASM binary from src-wasm/pkg/csv_diff_wasm_bg.wasm...",
+    );
+    const wasmUrl = new URL(
+      "../../src-wasm/pkg/csv_diff_wasm_bg.wasm",
+      import.meta.url,
+    ).href;
+    console.log("[CSV Worker] WASM URL:", wasmUrl);
+    const response = await fetch(wasmUrl);
+    console.log(
+      "[CSV Worker] Fetch response status:",
+      response.status,
+      response.statusText,
+    );
+    console.log("[CSV Worker] Fetch response ok:", response.ok);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch WASM module: ${response.status} ${response.statusText}`,
+      );
+    }
+    const wasmArrayBuffer = await response.arrayBuffer();
+    const wasmBytes = new Uint8Array(wasmArrayBuffer);
+    console.log("[CSV Worker] WASM bytes loaded, length:", wasmBytes.length);
+    console.log("[CSV Worker] About to call initSync(wasmBytes)...");
+    glue.initSync(wasmBytes);
+    console.log("[CSV Worker] initSync completed successfully");
 
     wasmInitialized = true;
     console.log("[CSV Worker] WASM init complete");
