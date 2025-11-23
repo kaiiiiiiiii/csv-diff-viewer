@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "npm run build:wasm && vite build",
-    "build:wasm": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory -C link-arg=--shared-memory -C link-arg=--max-memory=1073741824' wasm-pack build --target web --release -- -Z build-std=std,panic_abort",
-    "build:wasm:dev": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory -C link-arg=--shared-memory -C link-arg=--max-memory=1073741824' wasm-pack build --target web --dev -- -Z build-std=std,panic_abort",
+    "build:wasm": "cd src-wasm && ./build.sh --release",
+    "build:wasm:dev": "cd src-wasm && ./build.sh --dev",
     "check": "prettier --write . && eslint --fix",
     "dev": "vite dev --port 3000",
     "dev:wasm": "npm run build:wasm:dev && vite dev --port 3000",
