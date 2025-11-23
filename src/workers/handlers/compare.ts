@@ -67,13 +67,18 @@ export function handleCompare(
   const wasmInstance = getWasmInstance();
   const releaseBinaryBuffer = (ptr: number, capacity: number): void => {
     if (!ptr || !capacity) return;
-    const deallocFn = (wasmInstance as { dealloc?: (p: number, size: number) => void }).dealloc;
+    const deallocFn = (
+      wasmInstance as { dealloc?: (p: number, size: number) => void }
+    ).dealloc;
     if (typeof deallocFn === "function") {
       deallocFn(ptr, capacity);
     } else {
-      compareLog.warn("WASM dealloc function unavailable; skipping buffer release", {
-        requestId,
-      });
+      compareLog.warn(
+        "WASM dealloc function unavailable; skipping buffer release",
+        {
+          requestId,
+        },
+      );
     }
   };
 
