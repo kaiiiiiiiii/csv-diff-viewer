@@ -1,4 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import type { DevLogEvent, PerformanceLogEvent } from "@/lib/dev-logger";
+import {
+  DEV_LOG_EVENT,
+  PERFORMANCE_LOG_EVENT,
+  emitPerformanceLog,
+} from "@/lib/dev-logger";
 import { Card } from "@/components/ui/card";
 
 // Type guard for performance.memory API (Chrome-specific)
@@ -12,27 +18,17 @@ interface PerformanceWithMemory extends Performance {
   memory?: PerformanceMemory;
 }
 
-interface PerformanceMetrics {
-  startTime: number;
-  parseTime?: number;
-  diffTime?: number;
-  serializeTime?: number;
-  totalTime?: number;
-  memoryUsed?: number;
+interface OperationLog extends PerformanceLogEvent {
+  id: string;
 }
 
-interface OperationLog {
+interface DevLogEntry extends DevLogEvent {
   id: string;
-  timestamp: number;
-  operation: string;
-  duration: number;
-  status: "success" | "error" | "running";
-  metrics?: PerformanceMetrics;
-  error?: string;
 }
 
 export const PerformanceDashboard: React.FC = () => {
   const [operations, setOperations] = useState<Array<OperationLog>>([]);
+  const [devLogs, setDevLogs] = useState<Array<DevLogEntry>>([]);
   const [memoryInfo, setMemoryInfo] = useState<{
     used: number;
     total: number;
@@ -72,29 +68,46 @@ export const PerformanceDashboard: React.FC = () => {
     if (!isVisible) return;
 
     const handlePerformanceEvent = (event: CustomEvent) => {
-      const { operation, duration, metrics, status, error } = event.detail;
+      const detail = event.detail as PerformanceLogEvent;
       const newLog: OperationLog = {
-        id: `${Date.now()}-${Math.random()}`,
-        timestamp: Date.now(),
-        operation,
-        duration,
-        status,
-        metrics,
-        error,
+        ...detail,
+        id: `${detail.timestamp ?? Date.now()}-${Math.random()}`,
+        timestamp: detail.timestamp ?? Date.now(),
       };
 
-      setOperations((prev) => [newLog, ...prev].slice(0, 50)); // Keep last 50 operations
+      setOperations((prev) => [newLog, ...prev].slice(0, 50));
     };
 
     window.addEventListener(
-      "performance-log",
+      PERFORMANCE_LOG_EVENT,
       handlePerformanceEvent as EventListener,
     );
     return () => {
       window.removeEventListener(
-        "performance-log",
+        PERFORMANCE_LOG_EVENT,
         handlePerformanceEvent as EventListener,
       );
+    };
+  }, [isVisible]);
+
+  // Listen for general dev log events
+  useEffect(() => {
+    if (!isVisible) return;
+
+    const handleDevLog = (event: CustomEvent) => {
+      const detail = event.detail as DevLogEvent;
+      const newLog: DevLogEntry = {
+        ...detail,
+        id: `${detail.timestamp ?? Date.now()}-${Math.random()}`,
+        timestamp: detail.timestamp ?? Date.now(),
+      };
+
+      setDevLogs((prev) => [newLog, ...prev].slice(0, 100));
+    };
+
+    window.addEventListener(DEV_LOG_EVENT, handleDevLog as EventListener);
+    return () => {
+      window.removeEventListener(DEV_LOG_EVENT, handleDevLog as EventListener);
     };
   }, [isVisible]);
 
@@ -123,6 +136,26 @@ export const PerformanceDashboard: React.FC = () => {
         return "text-gray-600";
     }
   };
+
+  const levelStyles = useMemo(() => {
+    return {
+      info: "text-blue-600",
+      success: "text-green-600",
+      warn: "text-yellow-600",
+      error: "text-red-600",
+      debug: "text-gray-500",
+    } satisfies Record<string, string>;
+  }, []);
+
+  const levelIcons = useMemo(() => {
+    return {
+      info: "ℹ️",
+      success: "✅",
+      warn: "⚠️",
+      error: "⛔",
+      debug: "🐞",
+    } satisfies Record<string, string>;
+  }, []);
 
   return (
     <div className="fixed bottom-4 right-4 w-96 max-h-96 overflow-hidden bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
@@ -157,95 +190,150 @@ export const PerformanceDashboard: React.FC = () => {
         )}
       </div>
 
-      <div className="overflow-y-auto max-h-80 p-2 space-y-2">
-        {operations.length === 0 ? (
-          <div className="text-center text-gray-500 dark:text-gray-400 text-xs py-4">
-            No operations logged yet
+      <div className="overflow-y-auto max-h-80 p-2 space-y-4">
+        <section>
+          <div className="flex items-center justify-between mb-1">
+            <h4 className="text-xs font-semibold tracking-wide text-gray-600 dark:text-gray-300 uppercase">
+              Recent Operations
+            </h4>
+            <span className="text-[10px] text-gray-400">
+              {operations.length} entries
+            </span>
           </div>
-        ) : (
-          operations.map((op) => (
-            <Card key={op.id} className="p-2 text-xs">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <div className="font-semibold">{op.operation}</div>
-                  <div className="text-gray-500 dark:text-gray-400">
-                    {new Date(op.timestamp).toLocaleTimeString()}
+          {operations.length === 0 ? (
+            <div className="text-center text-gray-500 dark:text-gray-400 text-xs py-4">
+              No operations logged yet
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {operations.map((op) => (
+                <Card key={op.id} className="p-2 text-xs">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <div className="font-semibold">{op.operation}</div>
+                      <div className="text-gray-500 dark:text-gray-400">
+                        {new Date(
+                          op.timestamp ?? Date.now(),
+                        ).toLocaleTimeString()}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div
+                        className={`font-semibold ${getStatusColor(op.status)}`}
+                      >
+                        {op.status.toUpperCase()}
+                      </div>
+                      <div className="font-mono">
+                        {formatDuration(op.duration)}
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="text-right">
-                  <div className={`font-semibold ${getStatusColor(op.status)}`}>
-                    {op.status.toUpperCase()}
+
+                  {op.metrics && (
+                    <div className="mt-2 text-xs space-y-1 border-t border-gray-200 dark:border-gray-700 pt-2">
+                      {op.metrics.parseTime !== undefined && (
+                        <div className="flex justify-between">
+                          <span>Parse:</span>
+                          <span className="font-mono">
+                            {formatDuration(op.metrics.parseTime)}
+                          </span>
+                        </div>
+                      )}
+                      {op.metrics.diffTime !== undefined && (
+                        <div className="flex justify-between">
+                          <span>Diff:</span>
+                          <span className="font-mono">
+                            {formatDuration(op.metrics.diffTime)}
+                          </span>
+                        </div>
+                      )}
+                      {op.metrics.serializeTime !== undefined && (
+                        <div className="flex justify-between">
+                          <span>Serialize:</span>
+                          <span className="font-mono">
+                            {formatDuration(op.metrics.serializeTime)}
+                          </span>
+                        </div>
+                      )}
+                      {op.metrics.memoryUsed !== undefined && (
+                        <div className="flex justify-between">
+                          <span>WASM Memory:</span>
+                          <span className="font-mono">
+                            {formatMemory(op.metrics.memoryUsed)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {op.error && (
+                    <div className="mt-2 text-red-600 dark:text-red-400 text-xs p-1 bg-red-50 dark:bg-red-900/20 rounded">
+                      {op.error}
+                    </div>
+                  )}
+                </Card>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section>
+          <div className="flex items-center justify-between mb-1">
+            <h4 className="text-xs font-semibold tracking-wide text-gray-600 dark:text-gray-300 uppercase">
+              Debug Console
+            </h4>
+            <span className="text-[10px] text-gray-400">
+              {devLogs.length} entries
+            </span>
+          </div>
+          {devLogs.length === 0 ? (
+            <div className="text-center text-gray-500 dark:text-gray-400 text-xs py-4">
+              No debug messages yet
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {devLogs.map((log) => (
+                <div
+                  key={log.id}
+                  className="flex items-start justify-between rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 px-2 py-1.5 text-[11px]"
+                >
+                  <div className="flex-1 pr-2">
+                    <div className="flex items-center gap-1">
+                      <span
+                        className={`${levelStyles[log.level ?? "info"]} text-sm`}
+                      >
+                        {levelIcons[log.level ?? "info"]}
+                      </span>
+                      <span className="font-semibold text-gray-800 dark:text-gray-100">
+                        {log.scope}
+                      </span>
+                      {log.status && (
+                        <span className="rounded-full bg-gray-200 dark:bg-gray-800 px-2 py-0.5 text-[10px] uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                          {log.status}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-gray-700 dark:text-gray-300">
+                      {log.message}
+                    </div>
+                    {log.details && (
+                      <pre className="mt-1 whitespace-pre-wrap rounded bg-black/5 dark:bg-black/30 p-1 font-mono text-[10px] text-gray-600 dark:text-gray-300">
+                        {typeof log.details === "string"
+                          ? log.details
+                          : JSON.stringify(log.details, null, 2)}
+                      </pre>
+                    )}
                   </div>
-                  <div className="font-mono">{formatDuration(op.duration)}</div>
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                    {new Date(log.timestamp ?? Date.now()).toLocaleTimeString()}
+                  </span>
                 </div>
-              </div>
-
-              {op.metrics && (
-                <div className="mt-2 text-xs space-y-1 border-t border-gray-200 dark:border-gray-700 pt-2">
-                  {op.metrics.parseTime !== undefined && (
-                    <div className="flex justify-between">
-                      <span>Parse:</span>
-                      <span className="font-mono">
-                        {formatDuration(op.metrics.parseTime)}
-                      </span>
-                    </div>
-                  )}
-                  {op.metrics.diffTime !== undefined && (
-                    <div className="flex justify-between">
-                      <span>Diff:</span>
-                      <span className="font-mono">
-                        {formatDuration(op.metrics.diffTime)}
-                      </span>
-                    </div>
-                  )}
-                  {op.metrics.serializeTime !== undefined && (
-                    <div className="flex justify-between">
-                      <span>Serialize:</span>
-                      <span className="font-mono">
-                        {formatDuration(op.metrics.serializeTime)}
-                      </span>
-                    </div>
-                  )}
-                  {op.metrics.memoryUsed !== undefined && (
-                    <div className="flex justify-between">
-                      <span>WASM Memory:</span>
-                      <span className="font-mono">
-                        {formatMemory(op.metrics.memoryUsed)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {op.error && (
-                <div className="mt-2 text-red-600 dark:text-red-400 text-xs p-1 bg-red-50 dark:bg-red-900/20 rounded">
-                  {op.error}
-                </div>
-              )}
-            </Card>
-          ))
-        )}
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
 };
-
-// Utility function to log performance events
-export const logPerformance = (
-  operation: string,
-  duration: number,
-  status: "success" | "error" | "running" = "success",
-  metrics?: PerformanceMetrics,
-  error?: string,
-) => {
-  const event = new CustomEvent("performance-log", {
-    detail: {
-      operation,
-      duration,
-      status,
-      metrics,
-      error,
-    },
-  });
-  window.dispatchEvent(event);
-};
+export const logPerformance = emitPerformanceLog;

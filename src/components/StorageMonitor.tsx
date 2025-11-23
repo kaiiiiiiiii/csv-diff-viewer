@@ -3,6 +3,7 @@ import { HardDrive, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { indexedDBManager } from "@/lib/indexeddb";
+import { createScopedLogger } from "@/lib/dev-logger";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +33,7 @@ function formatBytes(bytes: number): string {
 export function StorageMonitor() {
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
   const [loading, setLoading] = useState(false);
+  const storageLogger = createScopedLogger("Storage Monitor");
 
   const updateStorageInfo = async () => {
     try {
@@ -43,7 +45,9 @@ export function StorageMonitor() {
         total: used + available,
       });
     } catch (error) {
-      console.error("Failed to get storage info:", error);
+      storageLogger.error("Failed to get storage info", {
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 
@@ -57,7 +61,9 @@ export function StorageMonitor() {
       await indexedDBManager.clearAllDiffs();
       await updateStorageInfo();
     } catch (error) {
-      console.error("Failed to clear storage:", error);
+      storageLogger.error("Failed to clear storage", {
+        message: error instanceof Error ? error.message : String(error),
+      });
       alert("Failed to clear storage: " + (error as Error).message);
     } finally {
       setLoading(false);

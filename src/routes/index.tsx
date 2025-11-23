@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FileSpreadsheet, Loader2 } from "lucide-react";
 import { useCsvWorker } from "@/hooks/useCsvWorker";
 import { useChunkedDiff } from "@/hooks/useChunkedDiff";
+import { createScopedLogger } from "@/lib/dev-logger";
 import { CsvInput } from "@/components/CsvInput";
 import { ConfigPanel } from "@/components/ConfigPanel";
 import { DiffStats } from "@/components/DiffStats";
@@ -39,6 +40,13 @@ const EXAMPLE_TARGET = `id,name,role,department
 9,Henry Kim,Team Lead,Customer Service
 10,Ivy Chen,Engineer,Engineering
 11,Jack White,Developer,Engineering`;
+
+const formatError = (error: unknown) => {
+  if (error instanceof Error) {
+    return { message: error.message, stack: error.stack };
+  }
+  return { message: String(error) };
+};
 
 const normalizeDiffResult = (
   result: any,
@@ -81,6 +89,7 @@ function Index() {
     text: string;
     name: string;
   } | null>(null);
+  const routeLogger = useMemo(() => createScopedLogger("Compare Route"), []);
 
   const [mode, setMode] = useState<"primary-key" | "content-match">(
     "content-match",
@@ -135,7 +144,7 @@ function Index() {
           );
         }
       } catch (e) {
-        console.error(e);
+        routeLogger.error("Failed to parse source CSV", formatError(e));
       }
     }
   };
@@ -158,7 +167,7 @@ function Index() {
           );
         }
       } catch (e) {
-        console.error(e);
+        routeLogger.error("Failed to parse target CSV", formatError(e));
       }
     }
   };

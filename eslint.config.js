@@ -12,6 +12,7 @@ export default [
       "src-wasm/pkg/**",
       "src-wasm/target/**",
       "routeTree.gen.ts",
+      "public/**",
     ],
   },
 ];

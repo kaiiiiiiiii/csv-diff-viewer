@@ -1,3 +1,4 @@
+/* eslint-disable */
 if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker

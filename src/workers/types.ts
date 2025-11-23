@@ -39,11 +39,26 @@ export interface WorkerRequest {
 }
 
 export interface WorkerResponse {
-  requestId: number;
+  requestId?: number;
   type: string;
   data?: any;
   metrics?: PerformanceMetrics;
   error?: any;
+}
+
+export interface WorkerLogPayload {
+  scope: string;
+  message: string;
+  level?: "debug" | "info" | "success" | "warn" | "error";
+  status?: "pending" | "running" | "success" | "error" | "idle";
+  details?:
+    | Record<string, unknown>
+    | Array<unknown>
+    | string
+    | number
+    | boolean;
+  requestId?: number;
+  timestamp?: number;
 }
 
 export type ProgressCallback = (percent: number, message: string) => void;

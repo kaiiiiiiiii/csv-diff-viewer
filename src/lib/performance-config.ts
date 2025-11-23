@@ -1,3 +1,7 @@
+import { createScopedLogger } from "@/lib/dev-logger";
+
+const perfLogger = createScopedLogger("Performance Config");
+
 /**
  * Performance configuration for CSV diff operations.
  *
@@ -85,7 +89,9 @@ export function getPerformanceConfig(): PerformanceConfig {
       try {
         return { ...DEFAULT_PERFORMANCE_CONFIG, ...JSON.parse(stored) };
       } catch (e) {
-        console.warn("Failed to parse stored performance config", e);
+        perfLogger.warn("Failed to parse stored performance config", {
+          message: e instanceof Error ? e.message : String(e),
+        });
       }
     }
   }

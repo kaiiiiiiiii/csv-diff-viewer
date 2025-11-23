@@ -6,6 +6,7 @@ import {
   handleDiffChunk,
   handleInitDiffer,
 } from "./handlers/chunked-diff";
+import { createWorkerLogger } from "./worker-logger";
 import type {
   ComparePayload,
   DiffChunkPayload,
@@ -17,6 +18,7 @@ import type {
 } from "./types";
 
 let wasmInitialized = false;
+const workerLog = createWorkerLogger("CSV Worker");
 
 const postProgress = (
   requestId: number,
@@ -47,16 +49,11 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
   try {
     if (!wasmInitialized) {
       await initWasm();
-      console.log("Cross-origin isolated:", crossOriginIsolated);
-      console.log(
-        "SharedArrayBuffer available:",
-        typeof SharedArrayBuffer !== "undefined",
-      );
-      console.log(
-        "Thread pool ready with",
-        navigator.hardwareConcurrency,
-        "threads",
-      );
+      workerLog.success("WASM runtime ready", {
+        crossOriginIsolated,
+        sharedArrayBuffer: typeof SharedArrayBuffer !== "undefined",
+        hardwareConcurrency: navigator.hardwareConcurrency,
+      });
       wasmInitialized = true;
     }
 

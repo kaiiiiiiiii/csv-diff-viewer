@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import CsvWorker from "../workers/csv.worker?worker";
+import { emitDevLog } from "@/lib/dev-logger";
 
 interface WorkerRequest {
   id: number;
@@ -19,6 +20,12 @@ export function useCsvWorker() {
 
     worker.onmessage = (e: MessageEvent) => {
       const { requestId, type, data } = e.data;
+
+      if (type === "dev-log") {
+        emitDevLog(data);
+        return;
+      }
+
       const request = requestMapRef.current.get(requestId);
 
       if (!request) return;

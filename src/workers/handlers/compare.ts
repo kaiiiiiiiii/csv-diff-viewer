@@ -14,6 +14,7 @@ import {
   getWasmInstance,
   getWasmMemory,
 } from "../wasm-context";
+import { createWorkerLogger } from "../worker-logger";
 import type {
   ComparePayload,
   PerformanceMetrics,
@@ -22,6 +23,7 @@ import type {
 } from "../types";
 
 const MAX_TRANSFERABLE_DEPTH = 10;
+const compareLog = createWorkerLogger("Compare Handler");
 
 export function handleCompare(
   requestId: number,
@@ -69,13 +71,10 @@ export function handleCompare(
       // Decode binary result
       const resultLength = get_binary_result_length();
       const resultCapacity = get_binary_result_capacity();
-      if (!wasmMemory) {
-        throw new Error("WASM memory not initialized");
-      }
       results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
 
       // Clean up WASM memory
-      if (wasmInstance && wasmInstance.dealloc) {
+      if (typeof wasmInstance?.dealloc === "function") {
         wasmInstance.dealloc(resultPtr, resultCapacity);
       }
       emitProgress(100, "Comparison complete");
@@ -95,13 +94,10 @@ export function handleCompare(
       // Decode binary result
       const resultLength = get_binary_result_length();
       const resultCapacity = get_binary_result_capacity();
-      if (!wasmMemory) {
-        throw new Error("WASM memory not initialized");
-      }
       results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
 
       // Clean up WASM memory
-      if (wasmInstance && wasmInstance.dealloc) {
+      if (typeof wasmInstance?.dealloc === "function") {
         wasmInstance.dealloc(resultPtr, resultCapacity);
       }
       emitProgress(100, "Comparison complete");
@@ -128,9 +124,12 @@ export function handleCompare(
           emitProgress(100, "Comparison complete (Parallel)");
         } catch (error) {
           // Fallback to non-parallel if parallel fails
-          console.warn(
-            "[CSV Worker] Parallel processing failed, falling back to single-threaded:",
-            error,
+          compareLog.warn(
+            "Parallel processing failed; falling back to single-threaded execution",
+            {
+              message: (error as Error).message,
+              stack: (error as Error).stack,
+            },
           );
           emitProgress(0, "Starting comparison (Primary Key)...");
           results = diff_csv_primary_key(
@@ -183,8 +182,7 @@ export function handleCompare(
   // Calculate performance metrics
   if (currentMetrics) {
     currentMetrics.totalTime = performance.now() - currentMetrics.startTime;
-    currentMetrics.memoryUsed =
-      (wasmMemory?.buffer.byteLength ?? 0) / 1024 / 1024; // MB
+    currentMetrics.memoryUsed = wasmMemory.buffer.byteLength / 1024 / 1024; // MB
   }
 
   // Post results with performance metrics using Transferable ArrayBuffers

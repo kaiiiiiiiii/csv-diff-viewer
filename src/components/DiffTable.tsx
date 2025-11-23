@@ -14,6 +14,7 @@ import type {
   VisibilityState,
 } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
+import { createScopedLogger } from "@/lib/dev-logger";
 import {
   createAdvancedFilterFn,
   parseSearchQuery,
@@ -44,6 +45,7 @@ type DiffRow = any & {
 };
 
 const STORAGE_KEY = "csv-diff-viewer-column-visibility";
+const tableLogger = createScopedLogger("DiffTable");
 
 export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -67,10 +69,9 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
         setColumnVisibility(parsed);
       }
     } catch (error) {
-      console.error(
-        "Failed to load column visibility from localStorage:",
-        error,
-      );
+      tableLogger.error("Failed to load column visibility", {
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }, []);
 
@@ -79,7 +80,9 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(columnVisibility));
     } catch (error) {
-      console.error("Failed to save column visibility to localStorage:", error);
+      tableLogger.error("Failed to persist column visibility", {
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }, [columnVisibility]);
 

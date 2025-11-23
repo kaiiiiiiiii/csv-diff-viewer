@@ -5,6 +5,9 @@ import {
   getPerformanceConfig,
   savePerformanceConfig,
 } from "@/lib/performance-config";
+import { createScopedLogger } from "@/lib/dev-logger";
+
+const perfLogger = createScopedLogger("Performance Config");
 
 /**
  * React hook for managing performance configuration.
@@ -37,7 +40,9 @@ export function usePerformanceConfig() {
           const newConfig = JSON.parse(e.newValue);
           setConfig(newConfig);
         } catch (err) {
-          console.warn("Failed to parse performance config from storage", err);
+          perfLogger.warn("Failed to parse performance config from storage", {
+            message: err instanceof Error ? err.message : String(err),
+          });
         }
       }
     };
