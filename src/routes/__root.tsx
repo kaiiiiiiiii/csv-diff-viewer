@@ -1,6 +1,11 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 import appCss from "../styles.css?url";
 import { ThemeProvider } from "@/components/theme-provider";
+import { PerformanceDashboard } from "@/components/PerformanceDashboard";
+import {
+  setupGlobalCleanup,
+  setupMemoryMonitoring,
+} from "@/lib/memory-leak-prevention";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -56,6 +61,16 @@ export const Route = createRootRoute({
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  // Setup memory leak prevention on the client side
+  if (typeof window !== "undefined") {
+    // Only setup once
+    if (!(window as any).__memoryCleanupSetup) {
+      setupGlobalCleanup();
+      setupMemoryMonitoring();
+      (window as any).__memoryCleanupSetup = true;
+    }
+  }
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -83,10 +98,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             `,
           }}
         />
+        <script type="module" src="./enable-threads.js"></script>
       </head>
       <body>
         <ThemeProvider defaultTheme="system" storageKey="theme">
           {children}
+          <PerformanceDashboard />
         </ThemeProvider>
         <Scripts />
       </body>

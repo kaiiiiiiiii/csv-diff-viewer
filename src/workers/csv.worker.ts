@@ -1,325 +1,188 @@
-import init, {
-  CsvDiffer,
-  diff_csv,
-  diff_csv_primary_key,
-  diff_csv_binary,
-  diff_csv_primary_key_binary,
-  get_binary_result_length,
-  dealloc,
-  parse_csv,
-} from "../../src-wasm/pkg/csv_diff_wasm";
-import { decodeBinaryResult } from "../lib/binary-decoder";
+import { bufferPool, cleanupWasm, initWasm } from "./wasm-context";
+import { handleParse } from "./handlers/parse";
+import { handleCompare } from "./handlers/compare";
+import { createWorkerLogger } from "./worker-logger";
+import type {
+  ComparePayload,
+  ParsePayload,
+  PerformanceMetrics,
+  WorkerRequest,
+  WorkerResponse,
+} from "./types";
 
-const ctx: Worker = self as any;
 let wasmInitialized = false;
-let differ: CsvDiffer | null = null;
-let wasmMemory: WebAssembly.Memory | null = null;
+let workerQueue: Array<{ requestId: number; type: string; timestamp: number }> =
+  [];
+const workerLog = createWorkerLogger("CSV Worker");
 
-// Configuration flag to enable binary encoding (can be controlled by the caller)
-// Set to true for maximum performance, false for easier debugging
-const USE_BINARY_ENCODING = true;
+const postProgress = (
+  requestId: number,
+  percent: number,
+  message: string,
+): void => {
+  self.postMessage({
+    requestId,
+    type: "progress",
+    data: { percent, message },
+  } as WorkerResponse);
+};
 
-// Performance monitoring and profiling
-interface PerformanceMetrics {
-  startTime: number;
-  parseTime?: number;
-  diffTime?: number;
-  serializeTime?: number;
-  totalTime?: number;
-  memoryUsed?: number;
-}
+const simplePostMessage = (msg: WorkerResponse): void => {
+  self.postMessage(msg);
+};
 
-let currentMetrics: PerformanceMetrics | null = null;
+const transferablePostMessage = (
+  msg: WorkerResponse,
+  transferables?: Array<Transferable>,
+): void => {
+  (self.postMessage as any)(msg, transferables ?? []);
+};
 
-// Buffer pool for WASM allocations to reduce malloc/free overhead
-class BufferPool {
-  private pools: Map<number, number[]> = new Map();
-  private readonly maxPoolSize = 10;
-  
-  get(size: number): number | null {
-    const pool = this.pools.get(size);
-    return pool?.pop() ?? null;
-  }
-  
-  put(size: number, ptr: number): void {
-    if (!this.pools.has(size)) {
-      this.pools.set(size, []);
-    }
-    const pool = this.pools.get(size)!;
-    if (pool.length < this.maxPoolSize) {
-      pool.push(ptr);
-    } else {
-      // Pool is full, deallocate
-      dealloc(ptr, size);
-    }
-  }
-  
-  clear(): void {
-    for (const [size, ptrs] of this.pools) {
-      for (const ptr of ptrs) {
-        dealloc(ptr, size);
-      }
-    }
-    this.pools.clear();
-  }
-}
+self.onmessage = async (event: MessageEvent): Promise<void> => {
+  const message = event.data as WorkerRequest;
 
-const bufferPool = new BufferPool();
-
-async function initWasm() {
-  if (!wasmInitialized) {
-    const wasmExports = await init();
-    // Access memory from the initialized WASM module
-    // The init() function returns the wasm exports which includes memory
-    wasmMemory = wasmExports.memory;
-    wasmInitialized = true;
-  }
-}
-
-ctx.onmessage = async function (e) {
-  const { requestId, type, data } = e.data || {};
-
-  if (!requestId) {
-    ctx.postMessage({
-      requestId: 0,
-      type: "error",
-      data: { message: "Worker request missing requestId." },
-    });
+  if (message.type === "wasm_thread") {
+    const { memory, module } = message.data;
+    (self as any).wbg_rayon_start_worker(memory, module);
     return;
   }
 
-  // Start performance tracking
-  currentMetrics = { startTime: performance.now() };
+  const { requestId, type, data } = message;
 
-  const emitProgress = (progress: number, message: string) => {
-    ctx.postMessage({
-      requestId,
-      type: "progress",
-      data: {
-        percent: progress,
-        message: message,
-      },
-    });
-  };
+  // Update queue status
+  workerQueue.push({ requestId, type, timestamp: Date.now() });
+
+  // Emit worker status
+  self.postMessage({
+    type: "dev-log",
+    data: {
+      scope: "Worker Pool",
+      message: `Processing ${type} request`,
+      level: "info",
+      status: "running",
+      details: { requestId, type, queueLength: workerQueue.length },
+    },
+  });
 
   try {
-    await initWasm();
-
-    if (type === "parse") {
-      const { csvText, name, hasHeaders } = data;
-      const result = parse_csv(csvText, hasHeaders !== false);
-      ctx.postMessage({
-        requestId,
-        type: "parse-complete",
-        data: { name, headers: result.headers, rows: result.rows },
+    if (!wasmInitialized) {
+      await initWasm();
+      workerLog.success("WASM runtime ready", {
+        crossOriginIsolated,
+        sharedArrayBuffer: typeof SharedArrayBuffer !== "undefined",
+        hardwareConcurrency: navigator.hardwareConcurrency,
       });
-    } else if (type === "compare") {
-      const {
-        comparisonMode,
-        keyColumns,
-        caseSensitive,
-        ignoreWhitespace,
-        ignoreEmptyVsNull,
-        excludedColumns,
-        sourceRaw,
-        targetRaw,
-        hasHeaders,
-      } = data;
+      wasmInitialized = true;
+    }
 
-      if (!sourceRaw || !targetRaw) {
-        throw new Error("Raw CSV data is required for comparison.");
-      }
-
-      let results;
-      if (USE_BINARY_ENCODING) {
-        // Use high-performance binary encoding
-        if (comparisonMode === "primary-key") {
-          emitProgress(0, "Starting comparison (Primary Key, Binary)...");
-          const resultPtr = diff_csv_primary_key_binary(
-            sourceRaw,
-            targetRaw,
-            keyColumns,
-            caseSensitive,
-            ignoreWhitespace,
-            ignoreEmptyVsNull,
-            excludedColumns,
-            hasHeaders !== false,
-            (percent: number, message: string) => emitProgress(percent, message),
-          );
-          
-          // Decode binary result
-          const resultLength = get_binary_result_length();
-          if (!wasmMemory) {
-            throw new Error("WASM memory not initialized");
+    switch (type) {
+      case "warm-wasm":
+        // WASM is already initialized in the try block above
+        workerLog.success("WASM pre-warmed successfully");
+        self.postMessage({
+          requestId,
+          type: "warm-wasm-complete",
+          data: { success: true },
+        } as WorkerResponse);
+        break;
+      case "parse":
+        handleParse(requestId, data as ParsePayload, (msg) => {
+          if (msg.type === "progress") {
+            postProgress(requestId, msg.data.percent, msg.data.message);
+          } else {
+            simplePostMessage(msg);
           }
-          results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
-          
-          // Clean up WASM memory
-          dealloc(resultPtr, resultLength);
-          emitProgress(100, "Comparison complete");
-        } else {
-          emitProgress(0, "Starting comparison (Content Match, Binary)...");
-          const resultPtr = diff_csv_binary(
-            sourceRaw,
-            targetRaw,
-            caseSensitive,
-            ignoreWhitespace,
-            ignoreEmptyVsNull,
-            excludedColumns,
-            hasHeaders !== false,
-            (percent: number, message: string) => emitProgress(percent, message),
-          );
-          
-          // Decode binary result
-          const resultLength = get_binary_result_length();
-          if (!wasmMemory) {
-            throw new Error("WASM memory not initialized");
-          }
-          results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
-          
-          // Clean up WASM memory
-          dealloc(resultPtr, resultLength);
-          emitProgress(100, "Comparison complete");
-        }
-      } else {
-        // Use traditional JSON encoding (for debugging or compatibility)
-        if (comparisonMode === "primary-key") {
-          emitProgress(0, "Starting comparison (Primary Key)...");
-          results = diff_csv_primary_key(
-            sourceRaw,
-            targetRaw,
-            keyColumns,
-            caseSensitive,
-            ignoreWhitespace,
-            ignoreEmptyVsNull,
-            excludedColumns,
-            hasHeaders !== false,
-            (percent: number, message: string) => emitProgress(percent, message),
-          );
-          emitProgress(100, "Comparison complete");
-        } else {
-          emitProgress(0, "Starting comparison (Content Match)...");
-          results = diff_csv(
-            sourceRaw,
-            targetRaw,
-            caseSensitive,
-            ignoreWhitespace,
-            ignoreEmptyVsNull,
-            excludedColumns,
-            hasHeaders !== false,
-            (percent: number, message: string) => emitProgress(percent, message),
-          );
-          emitProgress(100, "Comparison complete");
-        }
+        });
+        break;
+      case "compare": {
+        const metrics: PerformanceMetrics = { startTime: performance.now() };
+        handleCompare(
+          requestId,
+          data as ComparePayload,
+          transferablePostMessage,
+          (percent: number, msg: string) =>
+            postProgress(requestId, percent, msg),
+          metrics,
+        );
+        break;
       }
-
-      // Calculate performance metrics
-      if (currentMetrics) {
-        currentMetrics.totalTime = performance.now() - currentMetrics.startTime;
-        currentMetrics.memoryUsed = (wasmMemory?.buffer.byteLength ?? 0) / 1024 / 1024; // MB
-      }
-
-      // Post results with performance metrics
-      // Note: Results are already decoded, so we use structured clone
-      // Future optimization: Use transferable ArrayBuffer for raw binary data
-      ctx.postMessage({ 
-        requestId, 
-        type: "compare-complete", 
-        data: results,
-        metrics: currentMetrics 
-      });
-    } else if (type === "init-differ") {
-      const {
-        sourceRaw,
-        targetRaw,
-        comparisonMode,
-        keyColumns,
-        caseSensitive,
-        ignoreWhitespace,
-        ignoreEmptyVsNull,
-        excludedColumns,
-        hasHeaders,
-      } = data;
-
-      if (differ) {
-        differ.free();
-        differ = null;
-      }
-
-      differ = new CsvDiffer(
-        sourceRaw,
-        targetRaw,
-        comparisonMode,
-        keyColumns,
-        caseSensitive,
-        ignoreWhitespace,
-        ignoreEmptyVsNull,
-        excludedColumns,
-        hasHeaders !== false,
-      );
-
-      ctx.postMessage({
-        requestId,
-        type: "init-differ-complete",
-        data: { success: true },
-      });
-    } else if (type === "diff-chunk") {
-      const { chunkStart, chunkSize } = data;
-
-      if (!differ) {
-        throw new Error("Differ not initialized");
-      }
-
-      const results = differ.diff_chunk(
-        chunkStart,
-        chunkSize,
-        (percent: number, message: string) => emitProgress(percent, message),
-      );
-
-      ctx.postMessage({
-        requestId,
-        type: "diff-chunk-complete",
-        data: results,
-      });
-    } else if (type === "cleanup-differ") {
-      if (differ) {
-        differ.free();
-        differ = null;
-      }
-      ctx.postMessage({
-        requestId,
-        type: "cleanup-differ-complete",
-        data: { success: true },
-      });
+      default:
+        throw new Error(`Unknown request type: ${type}`);
     }
   } catch (error: any) {
-    // Enhanced error logging with context
-    const errorContext = {
-      message: error.message,
-      stack: error.stack,
-      type: type,
-      timestamp: new Date().toISOString(),
-      metrics: currentMetrics,
-      wasmMemorySize: wasmMemory?.buffer.byteLength,
-    };
-    
-    console.error('[CSV Worker Error]', errorContext);
-    
-    ctx.postMessage({
+    const errMessage = error?.message ?? String(error);
+    const stack = error?.stack ?? undefined;
+    // Log error for worker-level visibility
+    workerLog.error("Worker request failed", {
       requestId,
-      type: "error",
-      data: errorContext,
+      type,
+      message: errMessage,
+      stack,
     });
+
+    // Update queue status on error
+    workerQueue = workerQueue.filter((item) => item.requestId !== requestId);
+
+    self.postMessage({
+      type: "dev-log",
+      data: {
+        scope: "Worker Pool",
+        message: `Error processing ${type} request`,
+        level: "error",
+        status: "error",
+        details: {
+          requestId,
+          type,
+          queueLength: workerQueue.length,
+          error: errMessage,
+        },
+      },
+    });
+
+    // Send structured error payload to the main thread (message + stack)
+    simplePostMessage({
+      requestId,
+      type: `${type}-error`,
+      data: { message: errMessage, stack },
+    } as WorkerResponse);
   } finally {
-    // Reset metrics for next operation
-    currentMetrics = null;
+    // Clean up queue on completion (success or error)
+    workerQueue = workerQueue.filter((item) => item.requestId !== requestId);
+
+    if (workerQueue.length === 0) {
+      self.postMessage({
+        type: "dev-log",
+        data: {
+          scope: "Worker Pool",
+          message: "All requests completed",
+          level: "info",
+          status: "idle",
+          details: { queueLength: 0 },
+        },
+      });
+    }
   }
 };
 
-// Cleanup on worker termination
-ctx.addEventListener('close', () => {
+// Cleanup on error
+self.addEventListener("error", () => {
   bufferPool.clear();
-  if (differ) {
-    differ.free();
-  }
+  cleanupWasm();
 });
+
+// Cleanup when worker is terminating
+self.addEventListener("close", () => {
+  workerLog.info("Worker terminating, cleaning up resources");
+  bufferPool.clear();
+  cleanupWasm();
+});
+
+// Also cleanup on page unload to prevent memory leaks
+if (typeof self !== "undefined") {
+  const originalClose = self.close;
+  self.close = function () {
+    bufferPool.clear();
+    cleanupWasm();
+    return originalClose.call(this);
+  };
+}

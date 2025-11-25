@@ -32,9 +32,30 @@ const config = defineConfig({
       },
     }),
   ],
+  optimizeDeps: {
+    exclude: ["src-wasm/pkg/csv_diff_wasm_bg.wasm"],
+  },
+  // Enable SharedArrayBuffer support for multi-threaded WASM (wasm-bindgen-rayon)
+  server: {
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "credentialless",
+      "Cross-Origin-Resource-Policy": "same-origin",
+    },
+  },
+  preview: {
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
+      "Cross-Origin-Resource-Policy": "same-origin",
+    },
+  },
   build: {
     cssCodeSplit: true,
     modulePreload: { polyfill: false },
+  },
+  worker: {
+    format: "es",
   },
 });
 

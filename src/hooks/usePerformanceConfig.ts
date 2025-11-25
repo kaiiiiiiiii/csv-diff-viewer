@@ -1,14 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from "react";
+import type { PerformanceConfig } from "@/lib/performance-config";
 import {
-  type PerformanceConfig,
+  PERFORMANCE_PROFILES,
   getPerformanceConfig,
   savePerformanceConfig,
-  PERFORMANCE_PROFILES,
-} from '@/lib/performance-config';
+} from "@/lib/performance-config";
+import { createScopedLogger } from "@/lib/dev-logger";
+
+const perfLogger = createScopedLogger("Performance Config");
 
 /**
  * React hook for managing performance configuration.
- * 
+ *
  * Provides access to current performance settings and methods to update them.
  * Changes are persisted to localStorage automatically.
  */
@@ -32,18 +35,20 @@ export function usePerformanceConfig() {
   // Listen for storage changes (for multi-tab sync)
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'csv-diff-performance-config' && e.newValue) {
+      if (e.key === "csv-diff-performance-config" && e.newValue) {
         try {
           const newConfig = JSON.parse(e.newValue);
           setConfig(newConfig);
         } catch (err) {
-          console.warn('Failed to parse performance config from storage', err);
+          perfLogger.warn("Failed to parse performance config from storage", {
+            message: err instanceof Error ? err.message : String(err),
+          });
         }
       }
     };
 
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
   return {

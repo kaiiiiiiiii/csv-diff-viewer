@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FileSpreadsheet, Loader2 } from "lucide-react";
 import { useCsvWorker } from "@/hooks/useCsvWorker";
-import { useChunkedDiff } from "@/hooks/useChunkedDiff";
+import { createScopedLogger } from "@/lib/dev-logger";
+import { metricsCollector } from "@/lib/performance-metrics";
 import { CsvInput } from "@/components/CsvInput";
 import { ConfigPanel } from "@/components/ConfigPanel";
 import { DiffStats } from "@/components/DiffStats";
 import { DiffTable } from "@/components/DiffTable";
-import { StorageMonitor } from "@/components/StorageMonitor";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -40,17 +40,50 @@ const EXAMPLE_TARGET = `id,name,role,department
 10,Ivy Chen,Engineer,Engineering
 11,Jack White,Developer,Engineering`;
 
+const formatError = (error: unknown) => {
+  if (error instanceof Error) {
+    return { message: error.message, stack: error.stack };
+  }
+  return { message: String(error) };
+};
+
+const normalizeDiffResult = (
+  result: any,
+  fallbackSource?: { headers?: Array<string>; rows?: Array<any> },
+  fallbackTarget?: { headers?: Array<string>; rows?: Array<any> },
+) => {
+  const ensureSection = (
+    section: any,
+    fallback?: { headers?: Array<string>; rows?: Array<any> },
+  ) => ({
+    headers: section?.headers ?? fallback?.headers ?? [],
+    rows: section?.rows ?? fallback?.rows ?? [],
+  });
+
+  return {
+    added: result?.added ?? [],
+    removed: result?.removed ?? [],
+    modified: result?.modified ?? [],
+    unchanged: result?.unchanged ?? [],
+    source: ensureSection(result?.source, fallbackSource),
+    target: ensureSection(result?.target, fallbackTarget),
+    keyColumns: result?.keyColumns ?? [],
+    excludedColumns: result?.excludedColumns ?? [],
+    mode: result?.mode ?? "content-match",
+  };
+};
+
+interface ParsedCsvResult {
+  headers: Array<string>;
+  rows?: Array<any>;
+}
+
 export const Route = createFileRoute("/")({
   component: Index,
 });
 
 function Index() {
-  const { parse, compare } = useCsvWorker();
-  const {
-    startChunkedDiff,
-    loadDiffResults,
-    isProcessing: isChunkedProcessing,
-  } = useChunkedDiff();
+  const { parse, compare, warmWasm } = useCsvWorker();
   const [sourceData, setSourceData] = useState<{
     text: string;
     name: string;
@@ -59,6 +92,7 @@ function Index() {
     text: string;
     name: string;
   } | null>(null);
+  const routeLogger = useMemo(() => createScopedLogger("Compare Route"), []);
 
   const [mode, setMode] = useState<"primary-key" | "content-match">(
     "content-match",
@@ -69,16 +103,12 @@ function Index() {
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(true);
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [ignoreEmptyVsNull, setIgnoreEmptyVsNull] = useState(true);
-  const [useChunkedMode, setUseChunkedMode] = useState(false);
-  const [chunkSize, setChunkSize] = useState(10000);
 
   const [results, setResults] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{
     percent: number;
     message: string;
-    currentChunk?: number;
-    totalChunks?: number;
   } | null>(null);
   const [showOnlyDiffs, setShowOnlyDiffs] = useState(false);
 
@@ -94,13 +124,49 @@ function Index() {
     }
   }, [results]);
 
+  // Warm up WASM on component mount
+  useEffect(() => {
+    let cancelled = false;
+
+    warmWasm()
+      .then(() => {
+        if (!cancelled) {
+          routeLogger.info("WASM warmed up successfully");
+          metricsCollector.logMetrics();
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          routeLogger.error("Failed to warm up WASM", error);
+          metricsCollector.logMetrics();
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [warmWasm, routeLogger]);
+
+  // Cleanup function when component unmounts
+  useEffect(() => {
+    return () => {
+      // Clear any大型数据结构以释放内存
+      setResults(null);
+      setSourceData(null);
+      setTargetData(null);
+      setAvailableColumns([]);
+      routeLogger.info("Component unmounted, resources cleaned up");
+    };
+  }, [routeLogger]);
+
   const handleSourceChange = async (text: string, name: string) => {
     setSourceData({ text, name });
     setHeaderDetectionWarning(null);
     // Parse to get headers for available columns
     if (text) {
       try {
-        const res: any = await parse(text, name, hasHeaders);
+        // Use headers-only parse for faster header detection
+        const res: any = await parse(text, name, hasHeaders, true);
         setAvailableColumns(res.headers);
 
         // Check if auto-detection occurred (headers are Column1, Column2, etc.)
@@ -113,7 +179,7 @@ function Index() {
           );
         }
       } catch (e) {
-        console.error(e);
+        routeLogger.error("Failed to parse source CSV", formatError(e));
       }
     }
   };
@@ -124,7 +190,8 @@ function Index() {
     // Parse to get headers for available columns
     if (text) {
       try {
-        const res: any = await parse(text, name, hasHeaders);
+        // Use headers-only parse for faster header detection
+        const res: any = await parse(text, name, hasHeaders, true);
 
         // Check if auto-detection occurred (headers are Column1, Column2, etc.)
         const hasAutoHeaders = res.headers.some((h: string) =>
@@ -136,7 +203,7 @@ function Index() {
           );
         }
       } catch (e) {
-        console.error(e);
+        routeLogger.error("Failed to parse target CSV", formatError(e));
       }
     }
   };
@@ -153,69 +220,62 @@ function Index() {
     setResults(null);
     setProgress({ percent: 0, message: "Starting..." });
 
+    // Start total operation timer
+    metricsCollector.startTimer("totalTime");
+
     try {
-      const sourceParsed = await parse(
+      // Parse with progress for better user experience
+      const sourceParsed = (await parse(
         sourceData.text,
         sourceData.name,
         hasHeaders,
-      );
-      const targetParsed = await parse(
+        false,
+        true,
+        (percent, message) =>
+          setProgress({
+            percent: percent * 0.2,
+            message: `Parsing source: ${message}`,
+          }),
+      )) as ParsedCsvResult;
+
+      const targetParsed = (await parse(
         targetData.text,
         targetData.name,
         hasHeaders,
+        false,
+        true,
+        (percent, message) =>
+          setProgress({
+            percent: 20 + percent * 0.2,
+            message: `Parsing target: ${message}`,
+          }),
+      )) as ParsedCsvResult;
+
+      // Normal mode - load everything into memory
+      const res = await compare(
+        sourceParsed,
+        targetParsed,
+        {
+          comparisonMode: mode,
+          keyColumns: keyColumns.filter(Boolean),
+          excludedColumns: excludedColumns.filter(Boolean),
+          caseSensitive,
+          ignoreWhitespace,
+          ignoreEmptyVsNull,
+          sourceRaw: sourceData.text,
+          targetRaw: targetData.text,
+          hasHeaders,
+        },
+        (percent, message) =>
+          setProgress({ percent: 40 + percent * 0.6, message }),
       );
+      setResults(normalizeDiffResult(res, sourceParsed, targetParsed));
 
-      // Use chunked mode for large datasets
-      if (useChunkedMode) {
-        const diffId = await startChunkedDiff(
-          sourceData.text,
-          targetData.text,
-          sourceParsed.headers,
-          targetParsed.headers,
-          {
-            comparisonMode: mode,
-            keyColumns: keyColumns.filter(Boolean),
-            excludedColumns: excludedColumns.filter(Boolean),
-            caseSensitive,
-            ignoreWhitespace,
-            ignoreEmptyVsNull,
-            hasHeaders,
-            chunkSize,
-          },
-          (chunkProgress) => {
-            setProgress({
-              percent: chunkProgress.percent,
-              message: chunkProgress.message,
-              currentChunk: chunkProgress.currentChunk,
-              totalChunks: chunkProgress.totalChunks,
-            });
-          },
-        );
-
-        // Load results from IndexedDB
-        const res = await loadDiffResults(diffId);
-        setResults(res);
-      } else {
-        // Normal mode - load everything into memory
-        const res = await compare(
-          sourceParsed,
-          targetParsed,
-          {
-            comparisonMode: mode,
-            keyColumns: keyColumns.filter(Boolean),
-            excludedColumns: excludedColumns.filter(Boolean),
-            caseSensitive,
-            ignoreWhitespace,
-            ignoreEmptyVsNull,
-            sourceRaw: sourceData.text,
-            targetRaw: targetData.text,
-            hasHeaders,
-          },
-          (percent, message) => setProgress({ percent, message }),
-        );
-        setResults(res);
-      }
+      // Log metrics for debugging
+      metricsCollector.endTimer("totalTime");
+      metricsCollector.logMetrics();
     } catch (e: any) {
+      metricsCollector.endTimer("totalTime");
       alert("Error: " + e.message);
     } finally {
       setLoading(false);
@@ -294,12 +354,7 @@ function Index() {
         ignoreEmptyVsNull={ignoreEmptyVsNull}
         setIgnoreEmptyVsNull={setIgnoreEmptyVsNull}
         availableColumns={availableColumns}
-        useChunkedMode={useChunkedMode}
-        setUseChunkedMode={setUseChunkedMode}
-        chunkSize={chunkSize}
-        setChunkSize={setChunkSize}
-      />{" "}
-      {useChunkedMode && <StorageMonitor />}
+      />
       <div className="flex justify-center">
         <Button
           size="lg"
@@ -311,9 +366,7 @@ function Index() {
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               {progress
-                ? progress.totalChunks
-                  ? `${Math.round(progress.percent)}% - Chunk ${progress.currentChunk}/${progress.totalChunks}`
-                  : `${Math.round(progress.percent)}% - ${progress.message}`
+                ? `${Math.round(progress.percent)}% - ${progress.message}`
                 : "Processing..."}
             </>
           ) : (
