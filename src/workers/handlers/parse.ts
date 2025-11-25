@@ -9,12 +9,7 @@ export function handleParse(
   payload: ParsePayload,
   postMessage: (msg: WorkerResponse) => void,
 ) {
-  const {
-    csvText,
-    name,
-    hasHeaders,
-    headersOnly = false,
-  } = payload;
+  const { csvText, name, hasHeaders, headersOnly = false } = payload;
 
   // Note: parse_csv is imported directly from the pkg, but we could also use
   // getWasmInstance().parse_csv if we wanted to be consistent with dynamic loading.
