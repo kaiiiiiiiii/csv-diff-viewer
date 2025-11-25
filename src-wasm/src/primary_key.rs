@@ -1,6 +1,6 @@
 use crate::types::*;
 use crate::utils::*;
-use super::parse::parse_csv_internal;
+use super::parse::parse_csv_streaming;
 use ahash::{AHashMap};
 
 pub fn diff_csv_primary_key_internal<F>(
@@ -17,11 +17,24 @@ pub fn diff_csv_primary_key_internal<F>(
 where
     F: FnMut(f64, &str),
 {
-    on_progress(0.0, "Parsing source CSV...");
-    let (source_headers, source_rows, source_header_map) = parse_csv_internal(source_csv, has_headers)?;
+    // Use streaming parser for better memory efficiency and progress reporting
+    let (source_headers, source_rows, source_header_map) = parse_csv_streaming(
+        source_csv, 
+        has_headers, 
+        5000,
+        |percent, message| {
+            on_progress(percent * 0.1, &format!("Source: {}", message)); // Scale to 0-10%
+        }
+    )?;
 
-    on_progress(10.0, "Parsing target CSV...");
-    let (target_headers, target_rows, target_header_map) = parse_csv_internal(target_csv, has_headers)?;
+    let (target_headers, target_rows, target_header_map) = parse_csv_streaming(
+        target_csv, 
+        has_headers, 
+        5000,
+        |percent, message| {
+            on_progress(10.0 + percent * 0.1, &format!("Target: {}", message)); // Scale to 10-20%
+        }
+    )?;
 
     // Validation of key columns
     for key in &key_columns {

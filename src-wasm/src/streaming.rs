@@ -122,7 +122,7 @@ impl StreamingDiffResult {
     /// Convert to final DiffResult
     pub fn to_diff_result(self, source_headers: Vec<String>, target_headers: Vec<String>, key_columns: Vec<String>, excluded_columns: Vec<String>, mode: String) -> DiffResult {
         use crate::types::DatasetMetadata;
-        use std::collections::HashMap;
+
         
         DiffResult {
             added: self.added,
@@ -185,6 +185,283 @@ impl StreamingConfig {
         self.progress_update_interval = interval;
         self
     }
+}
+
+/// Chunked diff for primary key mode
+pub fn diff_chunk_primary_key<F>(
+    source_csv: &str,
+    target_csv: &str,
+    key_columns: &[String],
+    case_sensitive: bool,
+    ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
+    excluded_columns: &[String],
+    has_headers: bool,
+    chunk_start: usize,
+    chunk_size: usize,
+    _config: &StreamingConfig,
+    mut on_progress: F,
+) -> Result<StreamingDiffResult, Box<dyn std::error::Error>>
+where
+    F: FnMut(f64, &str),
+{
+    // Parse only the required chunks
+    let (source_headers, source_rows, _) = crate::parse::parse_csv_streaming(
+        source_csv, 
+        has_headers, 
+        chunk_size,
+        |percent, message| {
+            on_progress(percent * 0.3, &format!("Parsing source chunk: {}", message));
+        }
+    )?;
+    
+    let (target_headers, target_rows, _) = crate::parse::parse_csv_streaming(
+        target_csv, 
+        has_headers, 
+        chunk_size,
+        |percent, message| {
+            on_progress(30.0 + percent * 0.3, &format!("Parsing target chunk: {}", message));
+        }
+    )?;
+    
+    on_progress(60.0, "Building hash maps for chunk...");
+    
+    // Build header maps for this chunk
+    let mut source_header_map: ahash::AHashMap<String, usize> = ahash::AHashMap::new();
+    for (i, h) in source_headers.iter().enumerate() {
+        source_header_map.insert(h.clone(), i);
+    }
+    
+    let mut target_header_map: ahash::AHashMap<String, usize> = ahash::AHashMap::new();
+    for (i, h) in target_headers.iter().enumerate() {
+        target_header_map.insert(h.clone(), i);
+    }
+    
+    // Build hash maps for this chunk only
+    let mut source_map: ahash::AHashMap<String, usize> = ahash::AHashMap::new();
+    for (i, row) in source_rows.iter().enumerate() {
+        let key = crate::utils::get_row_key(row, &source_header_map, &key_columns);
+        source_map.insert(key, i);
+    }
+    
+    let mut target_map: ahash::AHashMap<String, usize> = ahash::AHashMap::new();
+    for (i, row) in target_rows.iter().enumerate() {
+        let key = crate::utils::get_row_key(row, &target_header_map, &key_columns);
+        target_map.insert(key, i);
+    }
+    
+    on_progress(80.0, "Comparing chunk...");
+    
+    let mut result = StreamingDiffResult::new(source_rows.len(), target_rows.len());
+    
+    // Process chunk
+    for (key, &source_idx) in &source_map {
+        if let Some(&target_idx) = target_map.get(key) {
+            let source_row = &source_rows[source_idx];
+            let target_row = &target_rows[target_idx];
+            
+            // Simple field-by-field comparison for now
+            let mut is_equal = true;
+            for h in &source_headers {
+                if let Some(&source_idx) = source_header_map.get(h) {
+                    if let Some(&target_idx) = target_header_map.get(h) {
+                        let source_val = source_row.get(source_idx).unwrap_or("");
+                        let target_val = target_row.get(target_idx).unwrap_or("");
+                        
+                        if source_val != target_val {
+                            is_equal = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if is_equal {
+                result.unchanged.push(UnchangedRow {
+                    key: format!("row_{}", chunk_start + source_idx),
+                    row: crate::utils::record_to_hashmap(source_row, &source_headers),
+                });
+            } else {
+                result.modified.push(ModifiedRow {
+                    key: format!("row_{}", chunk_start + source_idx),
+                    source_row: crate::utils::record_to_hashmap(source_row, &source_headers),
+                    target_row: crate::utils::record_to_hashmap(target_row, &target_headers),
+                    differences: vec![],
+                });
+            }
+        } else {
+            result.removed.push(RemovedRow {
+                key: format!("row_{}", chunk_start + source_idx),
+                source_row: crate::utils::record_to_hashmap(&source_rows[source_idx], &source_headers),
+            });
+        }
+    }
+    
+    for (key, &target_idx) in &target_map {
+        if !source_map.contains_key(key) {
+            result.added.push(AddedRow {
+                key: format!("row_{}", chunk_start + target_idx),
+                target_row: crate::utils::record_to_hashmap(&target_rows[target_idx], &target_headers),
+            });
+        }
+    }
+    
+    result.total_processed = chunk_start + chunk_size.min(source_rows.len());
+    on_progress(100.0, "Chunk processing complete");
+    
+    Ok(result)
+}
+
+/// Chunked diff for content match mode
+pub fn diff_chunk_content_match<F>(
+    source_csv: &str,
+    target_csv: &str,
+    case_sensitive: bool,
+    ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
+    excluded_columns: &[String],
+    has_headers: bool,
+    chunk_start: usize,
+    chunk_size: usize,
+    _config: &StreamingConfig,
+    mut on_progress: F,
+) -> Result<StreamingDiffResult, Box<dyn std::error::Error>>
+where
+    F: FnMut(f64, &str),
+{
+    // Parse only the required chunks
+    let (source_headers, source_rows, _) = crate::parse::parse_csv_streaming(
+        source_csv, 
+        has_headers, 
+        chunk_size,
+        |percent, message| {
+            on_progress(percent * 0.3, &format!("Parsing source chunk: {}", message));
+        }
+    )?;
+    
+    let (target_headers, target_rows, _) = crate::parse::parse_csv_streaming(
+        target_csv, 
+        has_headers, 
+        chunk_size,
+        |percent, message| {
+            on_progress(30.0 + percent * 0.3, &format!("Parsing target chunk: {}", message));
+        }
+    )?;
+    
+    on_progress(60.0, "Building fingerprint indexes for chunk...");
+    
+    // Use hash-based fingerprinting for faster comparison
+    let excluded_set: ahash::AHashSet<_> = excluded_columns.iter().cloned().collect();
+    
+    // Build header map
+    let mut target_header_map: ahash::AHashMap<String, usize> = ahash::AHashMap::new();
+    for (i, h) in target_headers.iter().enumerate() {
+        target_header_map.insert(h.clone(), i);
+    }
+    
+    // Build fingerprint lookup for target
+    let mut target_fingerprint_lookup: ahash::AHashMap<u64, Vec<usize>> = ahash::AHashMap::new();
+    for (idx, row) in target_rows.iter().enumerate() {
+        let fp = crate::utils::get_row_fingerprint_hash(
+            row,
+            &target_headers,
+            &target_header_map,
+            case_sensitive,
+            ignore_whitespace,
+            ignore_empty_vs_null,
+            &excluded_set,
+        );
+        target_fingerprint_lookup.entry(fp).or_default().push(idx);
+    }
+    
+    on_progress(80.0, "Comparing chunk...");
+    
+    let mut result = StreamingDiffResult::new(source_rows.len(), target_rows.len());
+    let mut matched_target_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    
+    // Build source header map
+    let mut source_header_map: ahash::AHashMap<String, usize> = ahash::AHashMap::new();
+    for (i, h) in source_headers.iter().enumerate() {
+        source_header_map.insert(h.clone(), i);
+    }
+    
+    // Find exact matches first
+    for (source_idx, source_row) in source_rows.iter().enumerate() {
+        let source_fp = crate::utils::get_row_fingerprint_hash(
+            source_row,
+            &source_headers,
+            &source_header_map,
+            case_sensitive,
+            ignore_whitespace,
+            ignore_empty_vs_null,
+            &excluded_set,
+        );
+        
+        if let Some(target_indices) = target_fingerprint_lookup.get(&source_fp) {
+            for &target_idx in target_indices {
+                if !matched_target_indices.contains(&target_idx) {
+                    matched_target_indices.insert(target_idx);
+                    
+                    // Simple field-by-field comparison for now
+                    let mut is_equal = true;
+                    for h in &source_headers {
+                        if let Some(&source_idx) = source_header_map.get(h) {
+                            if let Some(&target_idx) = target_header_map.get(h) {
+                                let source_val = source_row.get(source_idx).unwrap_or("");
+                                let target_val = target_rows[target_idx].get(target_idx).unwrap_or("");
+                                
+                                if source_val != target_val {
+                                    is_equal = false;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if is_equal {
+                        result.unchanged.push(UnchangedRow {
+                            key: format!("row_{}", chunk_start + source_idx),
+                            row: crate::utils::record_to_hashmap(source_row, &source_headers),
+                        });
+                    } else {
+                        result.modified.push(ModifiedRow {
+                            key: format!("row_{}", chunk_start + source_idx),
+                            source_row: crate::utils::record_to_hashmap(source_row, &source_headers),
+                            target_row: crate::utils::record_to_hashmap(&target_rows[target_idx], &target_headers),
+                            differences: vec![],
+                        });
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Mark remaining unmatched rows
+    for (source_idx, source_row) in source_rows.iter().enumerate() {
+        let row_key = format!("row_{}", chunk_start + source_idx);
+        if !result.unchanged.iter().any(|r| r.key == row_key) &&
+           !result.modified.iter().any(|r| r.key == row_key) {
+            result.removed.push(RemovedRow {
+                key: row_key,
+                source_row: crate::utils::record_to_hashmap(source_row, &source_headers),
+            });
+        }
+    }
+    
+    for (target_idx, target_row) in target_rows.iter().enumerate() {
+        if !matched_target_indices.contains(&target_idx) {
+            result.added.push(AddedRow {
+                key: format!("row_{}", chunk_start + target_idx),
+                target_row: crate::utils::record_to_hashmap(target_row, &target_headers),
+            });
+        }
+    }
+    
+    result.total_processed = chunk_start + chunk_size.min(source_rows.len());
+    on_progress(100.0, "Chunk processing complete");
+    
+    Ok(result)
 }
 
 #[cfg(test)]

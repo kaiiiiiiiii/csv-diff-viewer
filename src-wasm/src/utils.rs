@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::borrow::Cow;
+use std::hash::{Hash, Hasher};
 use csv::StringRecord;
-use ahash::{AHashMap, AHashSet};
+use ahash::{AHashMap, AHashSet, AHasher};
 use strsim::{jaro_winkler, normalized_levenshtein};
 
 
@@ -49,6 +50,7 @@ pub fn normalize_value_with_empty_vs_null(
 }
 
 /// Build a fingerprint with pre-computed excluded columns set for O(1) lookup
+/// Optimized version with reduced allocations and better performance
 #[inline]
 pub fn get_row_fingerprint_fast(
     row: &StringRecord,
@@ -59,7 +61,10 @@ pub fn get_row_fingerprint_fast(
     ignore_empty_vs_null: bool,
     excluded_set: &AHashSet<String>,
 ) -> String {
-    let mut result = String::with_capacity(headers.len() * 16); // Pre-allocate estimated size
+    // Pre-calculate capacity to avoid reallocations
+    let non_excluded_count = headers.iter().filter(|h| !excluded_set.contains(h.as_str())).count();
+    let mut result = String::with_capacity(non_excluded_count * 32); // Increased estimate
+    
     let mut first = true;
     
     for h in headers {
@@ -78,11 +83,78 @@ pub fn get_row_fingerprint_fast(
             ""
         };
         
-        let normalized = normalize_value_cow(val, case_sensitive, ignore_whitespace, ignore_empty_vs_null);
-        result.push_str(&normalized);
+        // Apply normalization inline to reduce function call overhead
+        let trimmed = if ignore_whitespace { val.trim() } else { val };
+        
+        if ignore_empty_vs_null && (trimmed.is_empty() || trimmed.eq_ignore_ascii_case("null")) {
+            result.push_str("EMPTY_OR_NULL");
+        } else if case_sensitive {
+            if ignore_whitespace && trimmed.len() != val.len() {
+                result.push_str(trimmed);
+            } else {
+                result.push_str(val);
+            }
+        } else {
+            // Lowercase allocation is unavoidable for case-insensitive comparison
+            result.push_str(&trimmed.to_lowercase());
+        }
     }
     
     result
+}
+
+/// Ultra-fast fingerprint using 64-bit hash instead of string concatenation
+/// Much faster for large datasets with minimal collision risk
+#[inline]
+pub fn get_row_fingerprint_hash(
+    row: &StringRecord,
+    headers: &[String],
+    header_map: &AHashMap<String, usize>,
+    case_sensitive: bool,
+    ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
+    excluded_set: &AHashSet<String>,
+) -> u64 {
+    let mut hasher = AHasher::default();
+    
+    for h in headers {
+        if excluded_set.contains(h) {
+            continue;
+        }
+        
+        let val = if let Some(&idx) = header_map.get(h) {
+            row.get(idx).unwrap_or("")
+        } else {
+            ""
+        };
+        
+        // Apply normalization inline and hash directly
+        let trimmed = if ignore_whitespace { val.trim() } else { val };
+        
+        if ignore_empty_vs_null && (trimmed.is_empty() || trimmed.eq_ignore_ascii_case("null")) {
+            "EMPTY_OR_NULL".hash(&mut hasher);
+        } else if case_sensitive {
+            if ignore_whitespace && trimmed.len() != val.len() {
+                trimmed.hash(&mut hasher);
+            } else {
+                val.hash(&mut hasher);
+            }
+        } else {
+            // Hash lowercase version without allocating string
+            for byte in trimmed.bytes() {
+                if byte >= b'A' && byte <= b'Z' {
+                    (byte + 32).hash(&mut hasher); // Convert to lowercase
+                } else {
+                    byte.hash(&mut hasher);
+                }
+            }
+        }
+        
+        // Add separator to avoid collisions between different column combinations
+        hasher.write_u8(0xFF);
+    }
+    
+    hasher.finish()
 }
 
 pub fn get_row_fingerprint(

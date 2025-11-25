@@ -76,8 +76,23 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
     }
 
     switch (type) {
+      case "warm-wasm":
+        // WASM is already initialized in the try block above
+        workerLog.success("WASM pre-warmed successfully");
+        self.postMessage({
+          requestId,
+          type: "warm-wasm-complete",
+          data: { success: true },
+        } as WorkerResponse);
+        break;
       case "parse":
-        handleParse(requestId, data as ParsePayload, simplePostMessage);
+        handleParse(requestId, data as ParsePayload, (msg) => {
+          if (msg.type === "progress") {
+            postProgress(requestId, msg.data.percent, msg.data.message);
+          } else {
+            simplePostMessage(msg);
+          }
+        });
         break;
       case "compare": {
         const metrics: PerformanceMetrics = { startTime: performance.now() };
@@ -163,7 +178,7 @@ self.addEventListener("close", () => {
 });
 
 // Also cleanup on page unload to prevent memory leaks
-if (typeof self !== "undefined" && self.close) {
+if (typeof self !== "undefined") {
   const originalClose = self.close;
   self.close = function () {
     bufferPool.clear();

@@ -13,6 +13,7 @@ export default [
       "src-wasm/target/**",
       "routeTree.gen.ts",
       "public/**",
+      "test-fix.js",
     ],
   },
 ];

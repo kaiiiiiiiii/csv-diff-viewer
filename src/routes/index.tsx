@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FileSpreadsheet, Loader2 } from "lucide-react";
 import { useCsvWorker } from "@/hooks/useCsvWorker";
 import { createScopedLogger } from "@/lib/dev-logger";
+import { metricsCollector } from "@/lib/performance-metrics";
 import { CsvInput } from "@/components/CsvInput";
 import { ConfigPanel } from "@/components/ConfigPanel";
 import { DiffStats } from "@/components/DiffStats";
@@ -82,7 +83,7 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const { parse, compare } = useCsvWorker();
+  const { parse, compare, warmWasm } = useCsvWorker();
   const [sourceData, setSourceData] = useState<{
     text: string;
     name: string;
@@ -123,6 +124,29 @@ function Index() {
     }
   }, [results]);
 
+  // Warm up WASM on component mount
+  useEffect(() => {
+    let cancelled = false;
+
+    warmWasm()
+      .then(() => {
+        if (!cancelled) {
+          routeLogger.info("WASM warmed up successfully");
+          metricsCollector.logMetrics();
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          routeLogger.error("Failed to warm up WASM", error);
+          metricsCollector.logMetrics();
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [warmWasm, routeLogger]);
+
   // Cleanup function when component unmounts
   useEffect(() => {
     return () => {
@@ -141,7 +165,8 @@ function Index() {
     // Parse to get headers for available columns
     if (text) {
       try {
-        const res: any = await parse(text, name, hasHeaders);
+        // Use headers-only parse for faster header detection
+        const res: any = await parse(text, name, hasHeaders, true);
         setAvailableColumns(res.headers);
 
         // Check if auto-detection occurred (headers are Column1, Column2, etc.)
@@ -165,7 +190,8 @@ function Index() {
     // Parse to get headers for available columns
     if (text) {
       try {
-        const res: any = await parse(text, name, hasHeaders);
+        // Use headers-only parse for faster header detection
+        const res: any = await parse(text, name, hasHeaders, true);
 
         // Check if auto-detection occurred (headers are Column1, Column2, etc.)
         const hasAutoHeaders = res.headers.some((h: string) =>
@@ -194,16 +220,35 @@ function Index() {
     setResults(null);
     setProgress({ percent: 0, message: "Starting..." });
 
+    // Start total operation timer
+    metricsCollector.startTimer("totalTime");
+
     try {
+      // Parse with progress for better user experience
       const sourceParsed = (await parse(
         sourceData.text,
         sourceData.name,
         hasHeaders,
+        false,
+        true,
+        (percent, message) =>
+          setProgress({
+            percent: percent * 0.2,
+            message: `Parsing source: ${message}`,
+          }),
       )) as ParsedCsvResult;
+
       const targetParsed = (await parse(
         targetData.text,
         targetData.name,
         hasHeaders,
+        false,
+        true,
+        (percent, message) =>
+          setProgress({
+            percent: 20 + percent * 0.2,
+            message: `Parsing target: ${message}`,
+          }),
       )) as ParsedCsvResult;
 
       // Normal mode - load everything into memory
@@ -221,10 +266,16 @@ function Index() {
           targetRaw: targetData.text,
           hasHeaders,
         },
-        (percent, message) => setProgress({ percent, message }),
+        (percent, message) =>
+          setProgress({ percent: 40 + percent * 0.6, message }),
       );
       setResults(normalizeDiffResult(res, sourceParsed, targetParsed));
+
+      // Log metrics for debugging
+      metricsCollector.endTimer("totalTime");
+      metricsCollector.logMetrics();
     } catch (e: any) {
+      metricsCollector.endTimer("totalTime");
       alert("Error: " + e.message);
     } finally {
       setLoading(false);

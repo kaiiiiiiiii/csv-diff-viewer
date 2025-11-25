@@ -4,11 +4,23 @@ use std::thread_local;
 
 /// WASM memory allocation helpers and last binary result metadata
 
-/// Storage for the last binary result length.
+/// Storage for last binary result length.
 /// # Safety
 /// These statics are mutated from other modules; ensure proper synchronization if used by multiple threads.
 static mut LAST_BINARY_RESULT_LENGTH: usize = 0;
 static mut LAST_BINARY_RESULT_CAPACITY: usize = 0;
+
+/// Get the last binary result length
+#[wasm_bindgen]
+pub fn get_last_binary_result_length() -> usize {
+    unsafe { LAST_BINARY_RESULT_LENGTH }
+}
+
+/// Get the last binary result capacity
+#[wasm_bindgen]
+pub fn get_last_binary_result_capacity() -> usize {
+    unsafe { LAST_BINARY_RESULT_CAPACITY }
+}
 
 // Thread-local dummy variable to ensure TLS initialization symbols
 // like `__wasm_init_tls` are emitted in the final WASM binary

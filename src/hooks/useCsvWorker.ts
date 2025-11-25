@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import CsvWorker from "../workers/csv.worker?worker";
 import { emitDevLog, emitPerformanceLog } from "@/lib/dev-logger";
+import { metricsCollector } from "@/lib/performance-metrics";
 
 interface WorkerRequest {
   id: number;
@@ -13,6 +14,7 @@ export function useCsvWorker() {
   const workerRef = useRef<Worker | null>(null);
   const requestMapRef = useRef<Map<number, WorkerRequest>>(new Map());
   const requestIdCounterRef = useRef(1);
+  const warmPromiseRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     const worker = new CsvWorker();
@@ -57,7 +59,7 @@ export function useCsvWorker() {
         }
         request.reject(new Error(message));
         requestMapRef.current.delete(requestId);
-      } else if (type.endsWith("-complete")) {
+      } else if (type === "warm-wasm-complete" || type.endsWith("-complete")) {
         // Emit a performance log for success with optional metrics
         if (typeof type === "string" && type.endsWith("-complete")) {
           try {
@@ -90,20 +92,76 @@ export function useCsvWorker() {
   }, []);
 
   const parse = useCallback(
-    (csvText: string, name: string, hasHeaders: boolean) => {
+    (
+      csvText: string,
+      name: string,
+      hasHeaders: boolean,
+      headersOnly?: boolean,
+      withProgress?: boolean,
+      onProgress?: (percent: number, message: string) => void,
+    ) => {
       return new Promise((resolve, reject) => {
         const id = requestIdCounterRef.current++;
-        requestMapRef.current.set(id, { id, resolve, reject });
+        const timerName = name.includes("source")
+          ? "parseSourceTime"
+          : "parseTargetTime";
+        metricsCollector.startTimer(timerName);
+
+        requestMapRef.current.set(id, {
+          id,
+          resolve: (data) => {
+            metricsCollector.endTimer(timerName);
+            resolve(data);
+          },
+          reject: (error) => {
+            metricsCollector.endTimer(timerName);
+            reject(error);
+          },
+          onProgress,
+        });
+
         workerRef.current?.postMessage({
           requestId: id,
           type: "parse",
-          data: { csvText, name, hasHeaders },
+          data: { csvText, name, hasHeaders, headersOnly, withProgress },
         });
       });
     },
     [],
   );
 
+  const warmWasm = useCallback(() => {
+    // Return existing promise if already warming
+    if (warmPromiseRef.current) {
+      return warmPromiseRef.current;
+    }
+
+    // Create new warm promise
+    warmPromiseRef.current = new Promise<void>((resolve, reject) => {
+      const id = requestIdCounterRef.current++;
+      metricsCollector.startTimer("wasmInitTime");
+
+      requestMapRef.current.set(id, {
+        id,
+        resolve: (data) => {
+          metricsCollector.endTimer("wasmInitTime");
+          resolve(data);
+        },
+        reject: (error) => {
+          metricsCollector.endTimer("wasmInitTime");
+          reject(error);
+        },
+      });
+
+      workerRef.current?.postMessage({
+        requestId: id,
+        type: "warm-wasm",
+        data: {},
+      });
+    });
+
+    return warmPromiseRef.current;
+  }, []);
   const compare = useCallback(
     (
       source: any,
@@ -113,7 +171,21 @@ export function useCsvWorker() {
     ) => {
       return new Promise((resolve, reject) => {
         const id = requestIdCounterRef.current++;
-        requestMapRef.current.set(id, { id, resolve, reject, onProgress });
+        metricsCollector.startTimer("compareTime");
+
+        requestMapRef.current.set(id, {
+          id,
+          resolve: (data) => {
+            metricsCollector.endTimer("compareTime");
+            resolve(data);
+          },
+          reject: (error) => {
+            metricsCollector.endTimer("compareTime");
+            reject(error);
+          },
+          onProgress,
+        });
+
         workerRef.current?.postMessage({
           requestId: id,
           type: "compare",
@@ -128,5 +200,5 @@ export function useCsvWorker() {
     [],
   );
 
-  return { parse, compare };
+  return { parse, compare, warmWasm };
 }

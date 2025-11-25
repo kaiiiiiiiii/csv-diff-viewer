@@ -300,8 +300,8 @@ export function cleanupWasm(): void {
   if (wasmModule) {
     try {
       // Some WASM modules have a thread pool termination function
-      if (typeof (wasmModule as any).terminate_thread_pool === "function") {
-        (wasmModule as any).terminate_thread_pool();
+      if (typeof wasmModule.terminate_thread_pool === "function") {
+        wasmModule.terminate_thread_pool();
       }
     } catch {
       // Ignore if not available
