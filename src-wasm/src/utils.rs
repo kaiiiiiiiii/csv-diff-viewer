@@ -1,6 +1,7 @@
 use std::collections::HashMap;
+use std::borrow::Cow;
 use csv::StringRecord;
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use strsim::{jaro_winkler, normalized_levenshtein};
 
 
@@ -9,23 +10,79 @@ pub fn is_empty_or_null(value: &str) -> bool {
     v.is_empty() || v.eq_ignore_ascii_case("null")
 }
 
+/// Normalize a value for comparison, returning a Cow to avoid allocations when possible.
+/// This is critical for performance - only allocates when actual transformations are needed.
+#[inline]
+pub fn normalize_value_cow<'a>(
+    value: &'a str, 
+    case_sensitive: bool, 
+    ignore_whitespace: bool,
+    ignore_empty_vs_null: bool
+) -> Cow<'a, str> {
+    let trimmed = if ignore_whitespace { value.trim() } else { value };
+    
+    // Check for empty/null first to short-circuit
+    if ignore_empty_vs_null && is_empty_or_null(trimmed) {
+        return Cow::Borrowed("EMPTY_OR_NULL");
+    }
+    
+    // Only allocate if we actually need to lowercase
+    if case_sensitive {
+        if ignore_whitespace && trimmed.len() != value.len() {
+            Cow::Owned(trimmed.to_string())
+        } else {
+            Cow::Borrowed(value)
+        }
+    } else {
+        // Need to lowercase - must allocate
+        Cow::Owned(trimmed.to_lowercase())
+    }
+}
+
 pub fn normalize_value_with_empty_vs_null(
     value: &str, 
     case_sensitive: bool, 
     ignore_whitespace: bool,
     ignore_empty_vs_null: bool
 ) -> String {
-    let mut val = value.to_string();
-    if ignore_whitespace {
-        val = val.trim().to_string();
+    normalize_value_cow(value, case_sensitive, ignore_whitespace, ignore_empty_vs_null).into_owned()
+}
+
+/// Build a fingerprint with pre-computed excluded columns set for O(1) lookup
+#[inline]
+pub fn get_row_fingerprint_fast(
+    row: &StringRecord,
+    headers: &[String],
+    header_map: &AHashMap<String, usize>,
+    case_sensitive: bool,
+    ignore_whitespace: bool,
+    ignore_empty_vs_null: bool,
+    excluded_set: &AHashSet<String>,
+) -> String {
+    let mut result = String::with_capacity(headers.len() * 16); // Pre-allocate estimated size
+    let mut first = true;
+    
+    for h in headers {
+        if excluded_set.contains(h) {
+            continue;
+        }
+        
+        if !first {
+            result.push_str("||");
+        }
+        first = false;
+        
+        let val = if let Some(&idx) = header_map.get(h) {
+            row.get(idx).unwrap_or("")
+        } else {
+            ""
+        };
+        
+        let normalized = normalize_value_cow(val, case_sensitive, ignore_whitespace, ignore_empty_vs_null);
+        result.push_str(&normalized);
     }
-    if !case_sensitive {
-        val = val.to_lowercase();
-    }
-    if ignore_empty_vs_null && is_empty_or_null(&val) {
-        val = "EMPTY_OR_NULL".to_string();
-    }
-    val
+    
+    result
 }
 
 pub fn get_row_fingerprint(

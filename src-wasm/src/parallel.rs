@@ -3,7 +3,7 @@
 use csv::StringRecord;
 use ahash::{AHashMap, AHashSet};
 use crate::types::{AddedRow, RemovedRow, ModifiedRow, UnchangedRow, Difference, DiffResult};
-use crate::utils::{record_to_hashmap, normalize_value_with_empty_vs_null, get_row_key, get_row_fingerprint};
+use crate::utils::{record_to_hashmap, normalize_value_cow, get_row_key, get_row_fingerprint_fast, normalize_value_with_empty_vs_null};
 use rayon::prelude::*;
 use strsim::jaro_winkler;
 
@@ -102,13 +102,13 @@ where
                             let source_val_raw = source_row.get(*source_idx).unwrap_or("");
                             let target_val_raw = target_row.get(*target_idx).unwrap_or("");
                             
-                            let source_val = normalize_value_with_empty_vs_null(
+                            let source_val = normalize_value_cow(
                                 source_val_raw,
                                 case_sensitive,
                                 ignore_whitespace,
                                 ignore_empty_vs_null
                             );
-                            let target_val = normalize_value_with_empty_vs_null(
+                            let target_val = normalize_value_cow(
                                 target_val_raw,
                                 case_sensitive,
                                 ignore_whitespace,
@@ -366,38 +366,47 @@ where
     let mut unchanged = Vec::new();
 
     on_progress(20.0, "Building fingerprint index...");
-    
+
+    // Use HashSet for excluded columns for O(1) lookup
+    let excluded_set: AHashSet<String> = excluded_columns.iter().cloned().collect();
+
     // Track unmatched target rows
     let mut unmatched_target_indices: AHashSet<usize> = (0..target_rows.len()).collect();
-    
-    // Build fingerprint lookup for exact matches
+
+    // Build fingerprint lookup for exact matches (optimized)
     let mut target_fingerprint_lookup: AHashMap<String, Vec<usize>> = AHashMap::new();
     for (idx, row) in target_rows.iter().enumerate() {
-        let fp = get_row_fingerprint(
-            row, 
-            &source_headers, 
+        let fp = get_row_fingerprint_fast(
+            row,
+            &source_headers,
             &target_header_map,
-            case_sensitive, 
+            case_sensitive,
             ignore_whitespace,
             ignore_empty_vs_null,
-            &excluded_columns
+            &excluded_set
         );
         target_fingerprint_lookup.entry(fp).or_default().push(idx);
     }
 
-    // Build value lookup for fuzzy matching optimization
+    // Build value lookup for fuzzy matching optimization (avoid unnecessary allocations)
     let mut target_value_lookup: AHashMap<(usize, String), Vec<usize>> = AHashMap::new();
     for (row_idx, row) in target_rows.iter().enumerate() {
         for (col_idx, cell) in row.iter().enumerate() {
-             let header = &target_headers[col_idx];
-             if excluded_columns.contains(header) {
-                 continue;
-             }
-             if cell.trim().is_empty() {
-                 continue;
-             }
-             let key = (col_idx, cell.to_string());
-             target_value_lookup.entry(key).or_default().push(row_idx);
+            let header = &target_headers[col_idx];
+            if excluded_set.contains(header) {
+                continue;
+            }
+            let trimmed = cell.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            // Only allocate if needed
+            let key = if case_sensitive {
+                (col_idx, if ignore_whitespace { trimmed.to_string() } else { cell.to_string() })
+            } else {
+                (col_idx, if ignore_whitespace { trimmed.to_lowercase() } else { cell.to_lowercase() })
+            };
+            target_value_lookup.entry(key).or_default().push(row_idx);
         }
     }
 
@@ -407,14 +416,14 @@ where
 
     // Exact matching (Sequential)
     for (i, source_row) in source_rows.iter().enumerate() {
-        let source_fingerprint = get_row_fingerprint(
-            source_row, 
-            &source_headers, 
+        let source_fingerprint = get_row_fingerprint_fast(
+            source_row,
+            &source_headers,
             &source_header_map,
-            case_sensitive, 
+            case_sensitive,
             ignore_whitespace,
             ignore_empty_vs_null,
-            &excluded_columns
+            &excluded_set
         );
 
         let mut matched_exact = false;
@@ -684,13 +693,14 @@ where
         removed,
         modified,
         unchanged,
+        // For large datasets, avoid converting all rows to HashMap (huge perf win)
         source: crate::types::DatasetMetadata {
             headers: source_headers.clone(),
-            rows: source_rows.iter().map(|r| record_to_hashmap(r, &source_headers)).collect(),
+            rows: Vec::new(),
         },
         target: crate::types::DatasetMetadata {
             headers: target_headers.clone(),
-            rows: target_rows.iter().map(|r| record_to_hashmap(r, &target_headers)).collect(),
+            rows: Vec::new(),
         },
         key_columns: vec![],
         excluded_columns,

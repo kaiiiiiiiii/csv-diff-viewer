@@ -34,39 +34,46 @@ where
     let mut unchanged = Vec::new();
 
     on_progress(20.0, "Building fingerprint index for exact matches...");
-    
+
+    // Use HashSet for excluded columns for O(1) lookup
+    let excluded_set: AHashSet<String> = excluded_columns.iter().cloned().collect();
+
     // Track unmatched target rows
     let mut unmatched_target_indices: AHashSet<usize> = (0..target_rows.len()).collect();
-    
-    // Build fingerprint lookup for exact matches only
+
+    // Build fingerprint lookup for exact matches only (optimized)
     let mut target_fingerprint_lookup: AHashMap<String, Vec<usize>> = AHashMap::new();
     for (idx, row) in target_rows.iter().enumerate() {
-        let fp = get_row_fingerprint(
-            row, 
-            &source_headers, 
+        let fp = crate::utils::get_row_fingerprint_fast(
+            row,
+            &source_headers,
             &target_header_map,
-            case_sensitive, 
+            case_sensitive,
             ignore_whitespace,
             ignore_empty_vs_null,
-            &excluded_columns
+            &excluded_set
         );
         target_fingerprint_lookup.entry(fp).or_default().push(idx);
     }
 
     // Build value lookup for fuzzy matching optimization
-    // Map: (column_index, value) -> Vec<target_row_index>
     let mut target_value_lookup: AHashMap<(usize, String), Vec<usize>> = AHashMap::new();
     for (row_idx, row) in target_rows.iter().enumerate() {
         for (col_idx, cell) in row.iter().enumerate() {
-             let header = &target_headers[col_idx];
-             if excluded_columns.contains(header) {
-                 continue;
-             }
-             if cell.trim().is_empty() {
-                 continue;
-             }
-             let key = (col_idx, cell.to_string());
-             target_value_lookup.entry(key).or_default().push(row_idx);
+            let header = &target_headers[col_idx];
+            if excluded_set.contains(header) {
+                continue;
+            }
+            let trimmed = cell.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let key = if case_sensitive {
+                (col_idx, if ignore_whitespace { trimmed.to_string() } else { cell.to_string() })
+            } else {
+                (col_idx, if ignore_whitespace { trimmed.to_lowercase() } else { cell.to_lowercase() })
+            };
+            target_value_lookup.entry(key).or_default().push(row_idx);
         }
     }
     
@@ -82,14 +89,14 @@ where
         }
 
         // First try exact match via fingerprint
-        let source_fingerprint = get_row_fingerprint(
-            source_row, 
-            &source_headers, 
+        let source_fingerprint = crate::utils::get_row_fingerprint_fast(
+            source_row,
+            &source_headers,
             &source_header_map,
-            case_sensitive, 
+            case_sensitive,
             ignore_whitespace,
             ignore_empty_vs_null,
-            &excluded_columns
+            &excluded_set
         );
 
         let mut matched_exact = false;
