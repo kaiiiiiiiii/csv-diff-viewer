@@ -75,7 +75,7 @@ For datasets >10k rows (configurable `chunkSize`):
 
 ```bash
 npm run dev              # Vite dev server on :3000, hot reload
-npm run build:wasm       # wasm-pack build in src-wasm/
+npm run build:wasm       # Custom build script in src-wasm/build.sh
 npm run build            # Build WASM then Vite production bundle
 npm run check            # Prettier + ESLint auto-fix
 ```
@@ -92,7 +92,7 @@ npm run check            # Prettier + ESLint auto-fix
 
 GitHub Actions workflow (`.github/workflows/deploy.yml`) triggers on `src/**` or `src-wasm/**` changes:
 
-1. Build WASM with wasm-pack
+1. Build WASM with custom build script (uses cargo + wasm-bindgen)
 2. Build app with `npm run build` (outputs to `.output/public/`)
 3. Copy `index.html` to `404.html` for SPA routing
 4. Deploy to GitHub Pages
