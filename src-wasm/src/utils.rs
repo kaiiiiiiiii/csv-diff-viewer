@@ -256,10 +256,12 @@ pub fn calculate_row_similarity(
     }
 }
 
+#[allow(dead_code)]
 pub fn similarity_jaro_winkler(a: &str, b: &str) -> f64 {
     jaro_winkler(a, b)
 }
 
+#[allow(dead_code)]
 pub fn similarity_levenshtein(a: &str, b: &str) -> f64 {
     normalized_levenshtein(a, b)
 }

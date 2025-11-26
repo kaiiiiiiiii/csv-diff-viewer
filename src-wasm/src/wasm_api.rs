@@ -2,7 +2,6 @@ use wasm_bindgen::prelude::*;
 use serde::Serialize;
 use js_sys::Function;
 use csv::ReaderBuilder;
-use ahash::AHashMap;
 use crate::types::ParseResult;
 use crate::utils::record_to_hashmap;
 use crate::binary_encoder::BinaryEncoder;
@@ -70,7 +69,7 @@ pub fn parse_csv_with_progress(csv_content: &str, has_headers: bool, on_progress
         has_headers, 
         5000, // Process in chunks of 5000 rows
         |percent, message| {
-            on_progress.call2(&JsValue::NULL, &JsValue::from_f64(percent), &JsValue::from_str(message));
+            let _ = on_progress.call2(&JsValue::NULL, &JsValue::from_f64(percent), &JsValue::from_str(message));
         }
     ).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
@@ -79,7 +78,7 @@ pub fn parse_csv_with_progress(csv_content: &str, has_headers: bool, on_progress
         .map(|r| record_to_hashmap(r, &headers))
         .collect();
         
-    on_progress.call2(&JsValue::NULL, &JsValue::from_f64(100.0), &JsValue::from_str("Parsing complete"));
+    let _ = on_progress.call2(&JsValue::NULL, &JsValue::from_f64(100.0), &JsValue::from_str("Parsing complete"));
     
     let result = ParseResult { headers, rows: rows_hashmap };
     let serializer = serde_wasm_bindgen::Serializer::json_compatible();
@@ -453,7 +452,7 @@ pub fn parse_csv_binary(
         has_headers, 
         5000,
         |percent, message| {
-            on_progress.call2(&JsValue::NULL, &JsValue::from_f64(percent), &JsValue::from_str(message));
+            let _ = on_progress.call2(&JsValue::NULL, &JsValue::from_f64(percent), &JsValue::from_str(message));
         }
     ).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
@@ -504,7 +503,7 @@ pub fn init_differ(
     chunk_size: usize,
     on_progress: &Function,
 ) -> Result<JsValue, JsValue> {
-    on_progress.call2(&JsValue::NULL, &JsValue::from_f64(0.0), &JsValue::from_str("Initializing differ..."));
+    let _ = on_progress.call2(&JsValue::NULL, &JsValue::from_f64(0.0), &JsValue::from_str("Initializing differ..."));
     
     // Parse just the headers and count rows
     let (source_headers, source_rows, _source_header_map) = crate::parse::parse_csv_streaming(
@@ -512,7 +511,7 @@ pub fn init_differ(
         has_headers, 
         chunk_size,
         |percent, message| {
-            on_progress.call2(&JsValue::NULL, &JsValue::from_f64(percent * 0.4), &JsValue::from_str(&format!("Source: {}", message)));
+            let _ = on_progress.call2(&JsValue::NULL, &JsValue::from_f64(percent * 0.4), &JsValue::from_str(&format!("Source: {}", message)));
         }
     ).map_err(|e| JsValue::from_str(&e.to_string()))?;
     
@@ -521,11 +520,11 @@ pub fn init_differ(
         has_headers, 
         chunk_size,
         |percent, message| {
-            on_progress.call2(&JsValue::NULL, &JsValue::from_f64(40.0 + percent * 0.4), &JsValue::from_str(&format!("Target: {}", message)));
+            let _ = on_progress.call2(&JsValue::NULL, &JsValue::from_f64(40.0 + percent * 0.4), &JsValue::from_str(&format!("Target: {}", message)));
         }
     ).map_err(|e| JsValue::from_str(&e.to_string()))?;
     
-    on_progress.call2(&JsValue::NULL, &JsValue::from_f64(80.0), &JsValue::from_str("Building indexes..."));
+    let _ = on_progress.call2(&JsValue::NULL, &JsValue::from_f64(80.0), &JsValue::from_str("Building indexes..."));
     
     // Build header maps for fingerprint calculation
     let mut source_header_map: ahash::AHashMap<String, usize> = ahash::AHashMap::new();
@@ -565,7 +564,7 @@ pub fn init_differ(
         ))
         .collect();
     
-    on_progress.call2(&JsValue::NULL, &JsValue::from_f64(100.0), &JsValue::from_str("Differ initialized"));
+    let _ = on_progress.call2(&JsValue::NULL, &JsValue::from_f64(100.0), &JsValue::from_str("Differ initialized"));
     
     // Return differ state as JSON
     let differ_state = serde_json::json!({
@@ -605,7 +604,7 @@ pub fn diff_chunk(
     
     // This is a simplified implementation - in a full implementation, we'd need
     // to store the actual row data and process chunk by chunk
-    on_progress.call2(&JsValue::NULL, &JsValue::from_f64(0.0), &JsValue::from_str("Processing chunk..."));
+    let _ = on_progress.call2(&JsValue::NULL, &JsValue::from_f64(0.0), &JsValue::from_str("Processing chunk..."));
     
     // For now, return an empty result
     let result = serde_json::json!({
@@ -617,7 +616,7 @@ pub fn diff_chunk(
         "progress": 0.0
     });
     
-    on_progress.call2(&JsValue::NULL, &JsValue::from_f64(100.0), &JsValue::from_str("Chunk processed"));
+    let _ = on_progress.call2(&JsValue::NULL, &JsValue::from_f64(100.0), &JsValue::from_str("Chunk processed"));
     
     Ok(JsValue::from_str(&result.to_string()))
 }

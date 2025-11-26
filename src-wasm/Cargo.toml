@@ -3,6 +3,13 @@ name = "csv-diff-wasm"
 version = "0.1.0"
 edition = "2021"
 
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "warn"
+too_many_arguments = "allow"  # Allow functions with many parameters for WASM API
+
 [lib]
 # cdylib: WASM binary for browser/Node.js
 # rlib: Rust library for testing and integration

@@ -6,6 +6,7 @@ use crate::types::{DiffResult, AddedRow, RemovedRow, ModifiedRow, UnchangedRow};
 use std::collections::VecDeque;
 
 /// Streaming CSV reader that yields chunks of records
+#[allow(dead_code)]
 pub struct StreamingCsvReader {
     headers: Vec<String>,
     header_map: AHashMap<String, usize>,
@@ -13,6 +14,7 @@ pub struct StreamingCsvReader {
     chunk_size: usize,
 }
 
+#[allow(dead_code)]
 impl StreamingCsvReader {
     /// Create a new streaming reader with specified chunk size
     pub fn new(
@@ -87,6 +89,7 @@ impl StreamingCsvReader {
 }
 
 /// Streaming diff result that can be computed incrementally
+#[allow(dead_code)]
 pub struct StreamingDiffResult {
     pub added: Vec<AddedRow>,
     pub removed: Vec<RemovedRow>,
@@ -97,6 +100,7 @@ pub struct StreamingDiffResult {
     pub total_target_rows: usize,
 }
 
+#[allow(dead_code)]
 impl StreamingDiffResult {
     pub fn new(total_source: usize, total_target: usize) -> Self {
         Self {
@@ -155,6 +159,7 @@ impl StreamingDiffResult {
 
 /// Configuration for streaming diff operations
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct StreamingConfig {
     pub chunk_size: usize,
     pub enable_progress_updates: bool,
@@ -171,6 +176,7 @@ impl Default for StreamingConfig {
     }
 }
 
+#[allow(dead_code)]
 impl StreamingConfig {
     /// Create a new streaming config with custom chunk size
     pub fn new(chunk_size: usize) -> Self {
@@ -188,14 +194,15 @@ impl StreamingConfig {
 }
 
 /// Chunked diff for primary key mode
+#[allow(dead_code)]
 pub fn diff_chunk_primary_key<F>(
     source_csv: &str,
     target_csv: &str,
     key_columns: &[String],
-    case_sensitive: bool,
-    ignore_whitespace: bool,
-    ignore_empty_vs_null: bool,
-    excluded_columns: &[String],
+    _case_sensitive: bool,
+    _ignore_whitespace: bool,
+    _ignore_empty_vs_null: bool,
+    _excluded_columns: &[String],
     has_headers: bool,
     chunk_start: usize,
     chunk_size: usize,
@@ -313,6 +320,7 @@ where
 }
 
 /// Chunked diff for content match mode
+#[allow(dead_code)]
 pub fn diff_chunk_content_match<F>(
     source_csv: &str,
     target_csv: &str,

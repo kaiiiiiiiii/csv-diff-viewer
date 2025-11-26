@@ -1,25 +1,28 @@
 use wasm_bindgen::prelude::*;
 use std::cell::Cell;
 use std::thread_local;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// WASM memory allocation helpers and last binary result metadata
 
-/// Storage for last binary result length.
-/// # Safety
-/// These statics are mutated from other modules; ensure proper synchronization if used by multiple threads.
-static mut LAST_BINARY_RESULT_LENGTH: usize = 0;
-static mut LAST_BINARY_RESULT_CAPACITY: usize = 0;
+/// Storage for last binary result length using atomic operations for thread safety
+static LAST_BINARY_RESULT_LENGTH: AtomicUsize = AtomicUsize::new(0);
+static LAST_BINARY_RESULT_CAPACITY: AtomicUsize = AtomicUsize::new(0);
 
 /// Get the last binary result length
+/// 
+/// Returns the length in bytes of the last binary-encoded result
 #[wasm_bindgen]
 pub fn get_last_binary_result_length() -> usize {
-    unsafe { LAST_BINARY_RESULT_LENGTH }
+    LAST_BINARY_RESULT_LENGTH.load(Ordering::Relaxed)
 }
 
 /// Get the last binary result capacity
+/// 
+/// Returns the capacity in bytes of the last binary-encoded result
 #[wasm_bindgen]
 pub fn get_last_binary_result_capacity() -> usize {
-    unsafe { LAST_BINARY_RESULT_CAPACITY }
+    LAST_BINARY_RESULT_CAPACITY.load(Ordering::Relaxed)
 }
 
 // Thread-local dummy variable to ensure TLS initialization symbols
@@ -52,6 +55,13 @@ thread_local! {
 // `thread_local!` symbol above; avoid providing a duplicate symbol to
 // prevent linker errors.
 
+/// Allocate memory in the WASM heap
+/// 
+/// # Arguments
+/// * `size` - The number of bytes to allocate
+/// 
+/// # Returns
+/// A raw pointer to the allocated memory
 #[wasm_bindgen]
 pub fn alloc(size: usize) -> *mut u8 {
     let mut buf = Vec::with_capacity(size);
@@ -60,6 +70,11 @@ pub fn alloc(size: usize) -> *mut u8 {
     ptr
 }
 
+/// Deallocate memory in the WASM heap
+/// 
+/// # Arguments
+/// * `ptr` - Pointer to the memory to deallocate
+/// * `size` - The size of the memory block in bytes
 #[wasm_bindgen]
 pub fn dealloc(ptr: *mut u8, size: usize) {
     if ptr.is_null() {
@@ -71,23 +86,25 @@ pub fn dealloc(ptr: *mut u8, size: usize) {
 }
 
 pub(crate) fn set_last_binary_result_length(len: usize) {
-    unsafe {
-        LAST_BINARY_RESULT_LENGTH = len;
-    }
+    LAST_BINARY_RESULT_LENGTH.store(len, Ordering::Relaxed);
 }
 
 pub(crate) fn set_last_binary_result_capacity(cap: usize) {
-    unsafe {
-        LAST_BINARY_RESULT_CAPACITY = cap;
-    }
+    LAST_BINARY_RESULT_CAPACITY.store(cap, Ordering::Relaxed);
 }
 
+/// Get the binary result length (alias for get_last_binary_result_length)
+/// 
+/// Returns the length in bytes of the last binary-encoded result
 #[wasm_bindgen]
 pub fn get_binary_result_length() -> usize {
-    unsafe { LAST_BINARY_RESULT_LENGTH }
+    LAST_BINARY_RESULT_LENGTH.load(Ordering::Relaxed)
 }
 
+/// Get the binary result capacity (alias for get_last_binary_result_capacity)
+/// 
+/// Returns the capacity in bytes of the last binary-encoded result
 #[wasm_bindgen]
 pub fn get_binary_result_capacity() -> usize {
-    unsafe { LAST_BINARY_RESULT_CAPACITY }
+    LAST_BINARY_RESULT_CAPACITY.load(Ordering::Relaxed)
 }

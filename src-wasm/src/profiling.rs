@@ -3,14 +3,18 @@
 /// This module provides lightweight profiling hooks to track
 /// performance bottlenecks in CSV parsing and diffing operations.
 
+#[allow(dead_code)]
+
 use std::time::Instant;
 
 /// Performance profiler for tracking operation times
+#[allow(dead_code)]
 pub struct Profiler {
     start: Instant,
     checkpoints: Vec<(String, Instant)>,
 }
 
+#[allow(dead_code)]
 impl Profiler {
     /// Create a new profiler
     pub fn new() -> Self {
@@ -66,10 +70,12 @@ impl Default for Profiler {
 }
 
 /// Memory usage tracker
+#[allow(dead_code)]
 pub struct MemoryTracker {
     initial: usize,
 }
 
+#[allow(dead_code)]
 impl MemoryTracker {
     /// Create a new memory tracker
     pub fn new() -> Self {
