@@ -50,7 +50,7 @@ jobs:
           rustup target add wasm32-unknown-unknown --toolchain nightly
 
       - name: Install wasm-bindgen CLI
-        run: cargo install wasm-bindgen-cli --version 0.2.95
+        run: cargo install wasm-bindgen-cli --version 0.2.105
 
       - name: Install dependencies
         run: npm i
