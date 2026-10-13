@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useTable } from "@tanstack/react-table";
 import { ArrowUpDown } from "lucide-react";
-import FullScreen from "react-fullscreen-crossbrowser";
+import FullScreen from "@/components/DiffTable/FullScreen";
 import type {
   ColumnDef,
   ColumnFiltersState,
