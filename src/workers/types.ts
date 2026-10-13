@@ -57,11 +57,7 @@ export interface WorkerLogPayload {
   level?: "debug" | "info" | "success" | "warn" | "error";
   status?: "pending" | "running" | "success" | "error" | "idle";
   details?:
-    | Record<string, unknown>
-    | Array<unknown>
-    | string
-    | number
-    | boolean;
+    Record<string, unknown> | Array<unknown> | string | number | boolean;
   requestId?: number;
   timestamp?: number;
 }

@@ -1,18 +1,17 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import {
-  getCoreRowModel,
-  getFilteredRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
+import { useTable } from "@tanstack/react-table";
 import { ArrowUpDown } from "lucide-react";
 import FullScreen from "react-fullscreen-crossbrowser";
 import type {
   ColumnDef,
   ColumnFiltersState,
+  ColumnVisibilityState,
   SortingState,
-  VisibilityState,
 } from "@tanstack/react-table";
+import type {
+  DiffRow,
+  DiffTableFeatures,
+} from "@/components/DiffTable/tableFeatures";
 import { cn } from "@/lib/utils";
 import { createScopedLogger } from "@/lib/dev-logger";
 import {
@@ -22,6 +21,7 @@ import {
 import HeaderControls from "@/components/DiffTable/HeaderControls";
 import VirtualTable from "@/components/DiffTable/VirtualTable";
 import { countDiffTypes } from "@/components/DiffTable/counts";
+import { diffTableFeatures } from "@/components/DiffTable/tableFeatures";
 import {
   TypeBadgeCell,
   createDiffCellRenderer,
@@ -41,21 +41,18 @@ interface DiffTableProps {
   showOnlyDiffs: boolean;
 }
 
-type DiffRow = any & {
-  type: "added" | "removed" | "modified" | "unchanged";
-};
-
 const STORAGE_KEY = "csv-diff-viewer-column-visibility";
 const tableLogger = createScopedLogger("DiffTable");
 
-export const DiffTable = memo(function DiffTable({
+export const DiffTable = memo(function DiffTableInner({
   results,
   showOnlyDiffs,
 }: DiffTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] =
+    useState<ColumnVisibilityState>({});
   const [activeFilter, setActiveFilter] = useState<
     "all" | "added" | "removed" | "modified"
   >("all");
@@ -129,18 +126,17 @@ export const DiffTable = memo(function DiffTable({
     return combinedHeaders.length > 0 ? combinedHeaders : sourceHeaders;
   }, [results]);
 
-  const columns = useMemo<Array<ColumnDef<DiffRow>>>(() => {
+  const columns = useMemo<Array<ColumnDef<DiffTableFeatures, DiffRow>>>(() => {
     const headers = availableColumns;
 
-    const dynamicCols: Array<ColumnDef<DiffRow>> = headers.map(
-      (header, index) => ({
+    const dynamicCols: Array<ColumnDef<DiffTableFeatures, DiffRow>> =
+      headers.map((header, index) => ({
         id: `${header}_${index}`,
         accessorFn: (row) => {
-          if (row.type === "added") return row.targetRow[header];
           if (row.type === "removed") return row.sourceRow[header];
           if (row.type === "unchanged") return row.row[header];
-          if (row.type === "modified") return row.targetRow[header];
-          return "";
+          // added and modified rows show the target side
+          return row.targetRow[header];
         },
         enableColumnFilter: true,
         enableHiding: true,
@@ -160,8 +156,7 @@ export const DiffTable = memo(function DiffTable({
           );
         },
         cell: createDiffCellRenderer(header),
-      }),
-    );
+      }));
 
     return [
       {
@@ -184,7 +179,8 @@ export const DiffTable = memo(function DiffTable({
     return createAdvancedFilterFn(tokens);
   }, [globalFilter]);
 
-  const table = useReactTable({
+  const table = useTable({
+    features: diffTableFeatures,
     data,
     columns,
     getRowId: (_row, index) => String(index),
@@ -199,9 +195,6 @@ export const DiffTable = memo(function DiffTable({
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     globalFilterFn,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
   });
 
   const { rows } = table.getRowModel();

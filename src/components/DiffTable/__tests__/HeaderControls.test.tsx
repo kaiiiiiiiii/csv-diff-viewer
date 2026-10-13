@@ -1,8 +1,7 @@
-import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { vi } from "vitest";
 import HeaderControls from "../HeaderControls";
-import type { Column } from "@tanstack/react-table";
+import type { DiffTableColumn } from "../tableFeatures";
 
 describe("HeaderControls", () => {
   function makeMockColumn(id: string) {
@@ -13,7 +12,7 @@ describe("HeaderControls", () => {
       toggleVisibility: () => {},
       getCanFilter: () => true,
       getFilterValue: () => undefined,
-    } as unknown as Column<any>;
+    } as unknown as DiffTableColumn;
   }
 
   it("renders counts and toggles filters", () => {

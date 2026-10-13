@@ -6,7 +6,7 @@ import {
   Minimize2,
   Shrink,
 } from "lucide-react";
-import type { Column } from "@tanstack/react-table";
+import type { DiffTableColumn } from "@/components/DiffTable/tableFeatures";
 import { badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +33,7 @@ interface HeaderControlsProps {
   };
   showColumnFilters: boolean;
   setShowColumnFilters: (v: boolean) => void;
-  columns: Array<Column<any>>;
+  columns: Array<DiffTableColumn>;
   filteredRowsLength: number;
   isExpanded: boolean;
   setIsExpanded: (v: boolean) => void;

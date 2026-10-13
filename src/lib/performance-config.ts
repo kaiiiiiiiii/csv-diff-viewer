@@ -66,7 +66,7 @@ export const PERFORMANCE_PROFILES = {
     chunkSize: 5000,
     bufferPoolSize: 5,
     maxMemoryMB: 250,
-  } as PerformanceConfig,
+  },
 
   /** Debug mode with detailed logging */
   DEBUG: {

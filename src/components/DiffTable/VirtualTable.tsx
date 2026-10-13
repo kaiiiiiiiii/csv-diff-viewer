@@ -2,14 +2,17 @@ import React from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { flexRender } from "@tanstack/react-table";
 import { X } from "lucide-react";
-import type { Row, Table } from "@tanstack/react-table";
+import type {
+  DiffTableInstance,
+  DiffTableRow,
+} from "@/components/DiffTable/tableFeatures";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
 interface VirtualTableProps {
-  table: Table<any>;
-  filteredRows: Array<Row<any>>;
+  table: DiffTableInstance;
+  filteredRows: Array<DiffTableRow>;
   parentRef: React.RefObject<HTMLDivElement | null>;
   showColumnFilters: boolean;
   isFullscreen: boolean;
@@ -134,7 +137,6 @@ export default function VirtualTable({
                   key={row.id}
                   data-index={virtualRow.index}
                   ref={rowVirtualizer.measureElement}
-                  data-state={row.getIsSelected() && "selected"}
                   className={cn(
                     "border-b transition-colors hover:bg-muted/50",
                     rowType === "added" &&

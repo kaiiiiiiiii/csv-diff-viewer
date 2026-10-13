@@ -8,11 +8,7 @@ export interface DevLogEvent {
   level?: DevLogLevel;
   status?: "pending" | "running" | "success" | "error" | "idle";
   details?:
-    | Record<string, unknown>
-    | Array<unknown>
-    | string
-    | number
-    | boolean;
+    Record<string, unknown> | Array<unknown> | string | number | boolean;
   requestId?: number;
   icon?: string;
   timestamp?: number;

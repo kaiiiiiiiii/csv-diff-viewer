@@ -1,14 +1,10 @@
-import React from "react";
 import { render, screen } from "@testing-library/react";
 import { TypeBadgeCell } from "../CellRenderers";
 import type { CellContext } from "@tanstack/react-table";
 
 function makeProps(value: string) {
   // A minimal fake CellContext shape that the component accesses.
-  const ctx: Partial<CellContext<any, any>> = {
-    getValue: () => value,
-  };
-  return ctx as any;
+  return { getValue: () => value } as unknown as CellContext<any, any>;
 }
 
 describe("TypeBadgeCell", () => {
