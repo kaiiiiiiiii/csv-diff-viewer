@@ -51,7 +51,7 @@ export function createDiffCellRenderer(header: string) {
     return (
       <span
         className="whitespace-nowrap max-w-[300px] overflow-hidden text-ellipsis block"
-        title={String(value)}
+        title={value == null ? undefined : String(value)}
       >
         {String(value ?? "")}
       </span>

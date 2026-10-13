@@ -25,7 +25,9 @@ pub struct DiffResult {
 #[derive(Serialize, Deserialize)]
 pub struct DatasetMetadata {
     pub headers: Vec<String>,
-    pub rows: Vec<HashMap<String, String>>, 
+    // Not populated: consumers only read `headers`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rows: Vec<HashMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

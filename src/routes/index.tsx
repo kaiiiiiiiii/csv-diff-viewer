@@ -3,6 +3,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FileSpreadsheet, Loader2 } from "lucide-react";
 import { useCsvWorker } from "@/hooks/useCsvWorker";
 import { createScopedLogger } from "@/lib/dev-logger";
+import {
+  computeAvailableColumns,
+  hasGeneratedHeaders,
+  mergeCompareResult,
+} from "@/lib/route-helpers";
 import { metricsCollector } from "@/lib/performance-metrics";
 import { CsvInput } from "@/components/CsvInput";
 import { ConfigPanel } from "@/components/ConfigPanel";
@@ -47,36 +52,7 @@ const formatError = (error: unknown) => {
   return { message: String(error) };
 };
 
-const normalizeDiffResult = (
-  result: any,
-  fallbackSource?: { headers?: Array<string>; rows?: Array<any> },
-  fallbackTarget?: { headers?: Array<string>; rows?: Array<any> },
-) => {
-  const ensureSection = (
-    section: any,
-    fallback?: { headers?: Array<string>; rows?: Array<any> },
-  ) => ({
-    headers: section?.headers ?? fallback?.headers ?? [],
-    rows: section?.rows ?? fallback?.rows ?? [],
-  });
-
-  return {
-    added: result?.added ?? [],
-    removed: result?.removed ?? [],
-    modified: result?.modified ?? [],
-    unchanged: result?.unchanged ?? [],
-    source: ensureSection(result?.source, fallbackSource),
-    target: ensureSection(result?.target, fallbackTarget),
-    keyColumns: result?.keyColumns ?? [],
-    excludedColumns: result?.excludedColumns ?? [],
-    mode: result?.mode ?? "content-match",
-  };
-};
-
-interface ParsedCsvResult {
-  headers: Array<string>;
-  rows?: Array<any>;
-}
+type Side = "source" | "target";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -112,10 +88,28 @@ function Index() {
   } | null>(null);
   const [showOnlyDiffs, setShowOnlyDiffs] = useState(false);
 
-  const [availableColumns, setAvailableColumns] = useState<Array<string>>([]);
-  const [headerDetectionWarning, setHeaderDetectionWarning] = useState<
-    string | null
-  >(null);
+  const [headers, setHeaders] = useState<{
+    source: Array<string> | null;
+    target: Array<string> | null;
+  }>({ source: null, target: null });
+  const [headerWarnings, setHeaderWarnings] = useState<{
+    source: string | null;
+    target: string | null;
+  }>({ source: null, target: null });
+  // Request counters: only the latest async parse/compare may update state
+  const detectRequestRef = useRef<Record<Side, number>>({
+    source: 0,
+    target: 0,
+  });
+  const compareRequestRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  const availableColumns = useMemo(
+    () => computeAvailableColumns(headers.source, headers.target),
+    [headers],
+  );
+  const headerDetectionWarning = headerWarnings.source ?? headerWarnings.target;
+
   const resultsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -147,66 +141,71 @@ function Index() {
     };
   }, [warmWasm, routeLogger]);
 
-  // Cleanup function when component unmounts
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
-      // Clear any大型数据结构以释放内存
-      setResults(null);
-      setSourceData(null);
-      setTargetData(null);
-      setAvailableColumns([]);
-      routeLogger.info("Component unmounted, resources cleaned up");
+      mountedRef.current = false;
     };
-  }, [routeLogger]);
+  }, []);
 
-  const handleSourceChange = async (text: string, name: string) => {
-    setSourceData({ text, name });
-    setHeaderDetectionWarning(null);
-    // Parse to get headers for available columns
-    if (text) {
-      try {
-        // Use headers-only parse for faster header detection
-        const res: any = await parse(text, name, hasHeaders, true);
-        setAvailableColumns(res.headers);
+  // Detect headers whenever an input or the hasHeaders flag changes
+  const detectHeaders = (
+    side: Side,
+    data: { text: string; name: string } | null,
+  ) => {
+    const requestId = ++detectRequestRef.current[side];
+    setHeaders((prev) => ({ ...prev, [side]: null }));
+    setHeaderWarnings((prev) => ({ ...prev, [side]: null }));
+    if (!data?.text) return;
 
-        // Check if auto-detection occurred (headers are Column1, Column2, etc.)
-        const hasAutoHeaders = res.headers.some((h: string) =>
-          h.startsWith("Column"),
-        );
-        if (hasAutoHeaders && hasHeaders) {
-          setHeaderDetectionWarning(
-            `Auto-detected that "${name}" doesn't have headers. Using generated column names (Column1, Column2, etc.). You can disable "Has Headers" if this is incorrect.`,
-          );
+    parse(data.text, data.name, hasHeaders, true)
+      .then((res: any) => {
+        if (detectRequestRef.current[side] !== requestId) return;
+        setHeaders((prev) => ({ ...prev, [side]: res.headers }));
+        if (hasHeaders && hasGeneratedHeaders(res.headers)) {
+          setHeaderWarnings((prev) => ({
+            ...prev,
+            [side]: `Auto-detected that "${data.name}" doesn't have headers. Using generated column names (Column1, Column2, etc.). You can disable "Has Headers" if this is incorrect.`,
+          }));
         }
-      } catch (e) {
-        routeLogger.error("Failed to parse source CSV", formatError(e));
-      }
-    }
+      })
+      .catch((e) => {
+        if (detectRequestRef.current[side] !== requestId || !mountedRef.current)
+          return;
+        routeLogger.error(`Failed to parse ${side} CSV`, formatError(e));
+      });
   };
 
-  const handleTargetChange = async (text: string, name: string) => {
-    setTargetData({ text, name });
-    setHeaderDetectionWarning(null);
-    // Parse to get headers for available columns
-    if (text) {
-      try {
-        // Use headers-only parse for faster header detection
-        const res: any = await parse(text, name, hasHeaders, true);
+  useEffect(() => {
+    detectHeaders("source", sourceData);
+  }, [sourceData, hasHeaders]);
+  useEffect(() => {
+    detectHeaders("target", targetData);
+  }, [targetData, hasHeaders]);
 
-        // Check if auto-detection occurred (headers are Column1, Column2, etc.)
-        const hasAutoHeaders = res.headers.some((h: string) =>
-          h.startsWith("Column"),
-        );
-        if (hasAutoHeaders && hasHeaders) {
-          setHeaderDetectionWarning(
-            `Auto-detected that "${name}" doesn't have headers. Using generated column names (Column1, Column2, etc.). You can disable "Has Headers" if this is incorrect.`,
-          );
-        }
-      } catch (e) {
-        routeLogger.error("Failed to parse target CSV", formatError(e));
-      }
-    }
+  // Any input or option change invalidates shown results and in-flight compares
+  useEffect(() => {
+    compareRequestRef.current++;
+    setResults(null);
+    setLoading(false);
+    setProgress(null);
+  }, [
+    sourceData,
+    targetData,
+    hasHeaders,
+    mode,
+    keyColumns,
+    excludedColumns,
+    ignoreWhitespace,
+    caseSensitive,
+    ignoreEmptyVsNull,
+  ]);
+
+  const handleDataChange = (side: Side) => (text: string, name: string) => {
+    (side === "source" ? setSourceData : setTargetData)({ text, name });
   };
+  const handleSourceChange = handleDataChange("source");
+  const handleTargetChange = handleDataChange("target");
 
   const handleLoadExample = () => {
     handleSourceChange(EXAMPLE_SOURCE, "example_source.csv");
@@ -216,6 +215,10 @@ function Index() {
   const handleCompare = async () => {
     if (!sourceData || !targetData) return;
 
+    const requestId = ++compareRequestRef.current;
+    const isStale = () =>
+      !mountedRef.current || compareRequestRef.current !== requestId;
+
     setLoading(true);
     setResults(null);
     setProgress({ percent: 0, message: "Starting..." });
@@ -224,62 +227,51 @@ function Index() {
     metricsCollector.startTimer("totalTime");
 
     try {
-      // Parse with progress for better user experience
-      const sourceParsed = (await parse(
-        sourceData.text,
-        sourceData.name,
-        hasHeaders,
-        false,
-        true,
-        (percent, message) =>
-          setProgress({
-            percent: percent * 0.2,
-            message: `Parsing source: ${message}`,
-          }),
-      )) as ParsedCsvResult;
+      // Headers are normally known from detection; otherwise read just the
+      // header sample instead of fully parsing (Rust re-parses for compare).
+      const readHeaders = async (side: Side, data: typeof sourceData) =>
+        headers[side] ??
+        (
+          (await parse(data.text, data.name, hasHeaders, true)) as {
+            headers: Array<string>;
+          }
+        ).headers;
+      const [sourceHeaders, targetHeaders] = await Promise.all([
+        readHeaders("source", sourceData),
+        readHeaders("target", targetData),
+      ]);
+      if (isStale()) return;
 
-      const targetParsed = (await parse(
-        targetData.text,
-        targetData.name,
+      const options = {
+        comparisonMode: mode,
+        keyColumns: keyColumns.filter(Boolean),
+        excludedColumns: excludedColumns.filter(Boolean),
+        caseSensitive,
+        ignoreWhitespace,
+        ignoreEmptyVsNull,
+        sourceRaw: sourceData.text,
+        targetRaw: targetData.text,
         hasHeaders,
-        false,
-        true,
-        (percent, message) =>
-          setProgress({
-            percent: 20 + percent * 0.2,
-            message: `Parsing target: ${message}`,
-          }),
-      )) as ParsedCsvResult;
-
-      // Normal mode - load everything into memory
-      const res = await compare(
-        sourceParsed,
-        targetParsed,
-        {
-          comparisonMode: mode,
-          keyColumns: keyColumns.filter(Boolean),
-          excludedColumns: excludedColumns.filter(Boolean),
-          caseSensitive,
-          ignoreWhitespace,
-          ignoreEmptyVsNull,
-          sourceRaw: sourceData.text,
-          targetRaw: targetData.text,
-          hasHeaders,
-        },
-        (percent, message) =>
-          setProgress({ percent: 40 + percent * 0.6, message }),
+      };
+      const res = await compare(null, null, options, (percent, message) => {
+        if (!isStale()) setProgress({ percent, message });
+      });
+      if (isStale()) return;
+      setResults(
+        mergeCompareResult(res, options, sourceHeaders, targetHeaders),
       );
-      setResults(normalizeDiffResult(res, sourceParsed, targetParsed));
 
       // Log metrics for debugging
       metricsCollector.endTimer("totalTime");
       metricsCollector.logMetrics();
     } catch (e: any) {
       metricsCollector.endTimer("totalTime");
-      alert("Error: " + e.message);
+      if (!isStale()) alert("Error: " + (e?.message ?? String(e)));
     } finally {
-      setLoading(false);
-      setProgress(null);
+      if (!isStale()) {
+        setLoading(false);
+        setProgress(null);
+      }
     }
   };
 

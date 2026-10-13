@@ -121,6 +121,8 @@ cargo test --release -- --nocapture --ignored
 
 Use the `Performance Dashboard` with these files while toggling `USE_BINARY_ENCODING` and `USE_PARALLEL_PROCESSING`.
 
+> Note (refactor, 2026-10-13): `USE_BINARY_ENCODING` was removed; binary encoding is now always used.
+
 - Step 1: Compare `10000_A.csv` / `10000_B.csv` with `Content Match` and `Parallel` enabled.
 - Step 2: Note wall-clock time and memory usage from the dashboard.
 - Step 3: Repeat with `Binary` encoding to compare improvement.

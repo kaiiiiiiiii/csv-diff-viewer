@@ -11,6 +11,7 @@ export interface ParsePayload {
   csvText: string;
   name: string;
   hasHeaders?: boolean;
+  headersOnly?: boolean;
 }
 
 export interface ComparePayload {
@@ -33,7 +34,7 @@ export interface WasmThreadPayload {
 export type WorkerRequest =
   | {
       requestId: number;
-      type: "parse" | "compare";
+      type: "parse" | "compare" | "warm-wasm";
       data: any; // Specific payload based on type
     }
   | {

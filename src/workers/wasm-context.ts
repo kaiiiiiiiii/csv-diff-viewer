@@ -4,31 +4,20 @@ let wasmModule: any = null;
 let wasmMemory: WebAssembly.Memory | null = null;
 let wasmInitialized = false;
 let wasmInitPromise: Promise<void> | null = null;
+let threadPoolReady = false;
 
 const wasmLog = createWorkerLogger("WASM Init");
 const threadLog = createWorkerLogger("WASM Threads");
 
 export const bufferPool: Map<number, unknown> = new Map<number, unknown>();
 
-export const USE_BINARY_ENCODING = Boolean(true);
 export const USE_PARALLEL_PROCESSING = Boolean(true);
 
 /**
- * Check if WASM memory is shared (SharedArrayBuffer)
+ * Whether the rayon thread pool was started, i.e. parallel exports are usable
  */
-export function isWasmMemoryShared(): boolean {
-  if (!wasmMemory) {
-    return false;
-  }
-  return wasmMemory.buffer instanceof SharedArrayBuffer;
-}
-
-/**
- * Fallback to non-binary encoding when SharedArrayBuffer detected
- */
-export function shouldUseBinaryEncoding(): boolean {
-  // For now, always try binary encoding - the decoder will handle SharedArrayBuffer
-  return USE_BINARY_ENCODING;
+export function canUseThreads(): boolean {
+  return USE_PARALLEL_PROCESSING && threadPoolReady;
 }
 
 export function getWasmModule(): any {
@@ -40,36 +29,6 @@ export function getWasmModule(): any {
 
 export function getWasmInstance(): any {
   return getWasmModule();
-}
-
-/**
- * Initialize the WASM thread pool with the specified number of threads
- * This should be called before any parallel operations for optimal performance
- */
-export async function initWasmThreadPool(numThreads?: number): Promise<void> {
-  if (!wasmInitialized) {
-    await initWasm();
-  }
-
-  const threads =
-    numThreads || Math.max(1, (navigator.hardwareConcurrency || 2) - 1);
-  threadLog.info("Initializing WASM thread pool", { threads }, "running");
-
-  try {
-    const module = getWasmModule();
-    if (typeof module.init_wasm_thread_pool === "function") {
-      module.init_wasm_thread_pool(threads);
-      threadLog.success("Thread pool initialized", { threads }, "success");
-    } else {
-      threadLog.warn("init_wasm_thread_pool not available in WASM module");
-    }
-  } catch (error: unknown) {
-    threadLog.error("Failed to initialize thread pool", {
-      message: (error as Error).message,
-      stack: (error as Error).stack,
-    });
-    throw error;
-  }
 }
 
 export function getWasmMemory(): WebAssembly.Memory {
@@ -241,6 +200,7 @@ export async function initWasm(): Promise<void> {
           const threads = navigator.hardwareConcurrency || 2;
           threadLog.info("Initializing thread pool", { threads }, "running");
           await threadPoolFn(threads);
+          threadPoolReady = true;
           threadLog.success("Thread pool ready", { threads }, "success");
         } else if (USE_PARALLEL_PROCESSING) {
           threadLog.warn("Parallel WASM disabled", {
@@ -308,24 +268,12 @@ export function cleanupWasm(): void {
     }
   }
 
-  // Force garbage collection if available
-  if (
-    typeof window !== "undefined" &&
-    "gc" in window &&
-    typeof (window as any).gc === "function"
-  ) {
-    try {
-      (window as any).gc();
-    } catch {
-      // Ignore if gc is not available
-    }
-  }
-
   // Reset references
   wasmModule = null;
   wasmMemory = null;
   wasmInitialized = false;
   wasmInitPromise = null;
+  threadPoolReady = false;
 
   wasmLog.info("WASM resources cleaned up");
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   getCoreRowModel,
   getFilteredRowModel,
@@ -21,6 +21,7 @@ import {
 } from "@/components/AdvancedSearchInput";
 import HeaderControls from "@/components/DiffTable/HeaderControls";
 import VirtualTable from "@/components/DiffTable/VirtualTable";
+import { countDiffTypes } from "@/components/DiffTable/counts";
 import {
   TypeBadgeCell,
   createDiffCellRenderer,
@@ -47,7 +48,10 @@ type DiffRow = any & {
 const STORAGE_KEY = "csv-diff-viewer-column-visibility";
 const tableLogger = createScopedLogger("DiffTable");
 
-export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
+export const DiffTable = memo(function DiffTable({
+  results,
+  showOnlyDiffs,
+}: DiffTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -87,20 +91,25 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
   }, [columnVisibility]);
 
   // 1. Prepare Data
-  const data = useMemo(() => {
-    const allRows: Array<DiffRow> = [];
+  // Rows are tagged once per results object; toggling showOnlyDiffs only recombines.
+  const diffRows = useMemo<Array<DiffRow>>(
+    () => [
+      ...results.modified.map((r) => ({ ...r, type: "modified" })),
+      ...results.added.map((r) => ({ ...r, type: "added" })),
+      ...results.removed.map((r) => ({ ...r, type: "removed" })),
+    ],
+    [results],
+  );
 
-    allRows.push(...results.modified.map((r) => ({ ...r, type: "modified" })));
-    allRows.push(...results.added.map((r) => ({ ...r, type: "added" })));
-    allRows.push(...results.removed.map((r) => ({ ...r, type: "removed" })));
+  const unchangedRows = useMemo<Array<DiffRow>>(
+    () => results.unchanged.map((r) => ({ ...r, type: "unchanged" })),
+    [results],
+  );
 
-    if (!showOnlyDiffs) {
-      allRows.push(
-        ...results.unchanged.map((r) => ({ ...r, type: "unchanged" })),
-      );
-    }
-    return allRows;
-  }, [results, showOnlyDiffs]);
+  const data = useMemo(
+    () => (showOnlyDiffs ? diffRows : [...diffRows, ...unchangedRows]),
+    [diffRows, unchangedRows, showOnlyDiffs],
+  );
 
   // 2. Define Columns
   const availableColumns = useMemo(() => {
@@ -138,7 +147,8 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
         filterFn: "includesString",
         header: ({ column }) => {
           return (
-            <div
+            <button
+              type="button"
               className="flex items-center cursor-pointer select-none hover:text-foreground"
               onClick={() =>
                 column.toggleSorting(column.getIsSorted() === "asc")
@@ -146,7 +156,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
             >
               {header}
               <ArrowUpDown className="ml-2 h-4 w-4" />
-            </div>
+            </button>
           );
         },
         cell: createDiffCellRenderer(header),
@@ -196,19 +206,40 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
 
   const { rows } = table.getRowModel();
 
-  const counts = useMemo(() => {
-    const c = { added: 0, removed: 0, modified: 0, unchanged: 0 };
-    rows.forEach((row) => {
-      const type = row.original.type as keyof typeof c;
-      c[type]++;
-    });
-    return c;
-  }, [rows]);
+  // Counts reflect the unfiltered results so badges don't shrink while searching
+  const counts = useMemo(
+    () => countDiffTypes(results, showOnlyDiffs),
+    [results, showOnlyDiffs],
+  );
 
   const filteredRows = useMemo(() => {
     if (activeFilter === "all") return rows;
     return rows.filter((row) => row.original.type === activeFilter);
   }, [rows, activeFilter]);
+
+  const allColumns = useMemo(() => table.getAllColumns(), [table, columns]);
+
+  // table is a stable instance, so list the state that changes its output
+  const virtualTable = useMemo(
+    () => (
+      <VirtualTable
+        table={table}
+        filteredRows={filteredRows}
+        parentRef={parentRef}
+        showColumnFilters={showColumnFilters}
+        isFullscreen={isFullscreen}
+      />
+    ),
+    [
+      table,
+      filteredRows,
+      showColumnFilters,
+      isFullscreen,
+      sorting,
+      columnFilters,
+      columnVisibility,
+    ],
+  );
 
   // 4. NOTE: Virtualization, headers and cell rendering are handled by subcomponents
 
@@ -231,7 +262,7 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
           counts={counts}
           showColumnFilters={showColumnFilters}
           setShowColumnFilters={setShowColumnFilters}
-          columns={table.getAllColumns()}
+          columns={allColumns}
           filteredRowsLength={filteredRows.length}
           isExpanded={isExpanded}
           setIsExpanded={setIsExpanded}
@@ -239,14 +270,8 @@ export function DiffTable({ results, showOnlyDiffs }: DiffTableProps) {
           setIsFullscreen={setIsFullscreen}
         />
 
-        <VirtualTable
-          table={table}
-          filteredRows={filteredRows}
-          parentRef={parentRef}
-          showColumnFilters={showColumnFilters}
-          isFullscreen={isFullscreen}
-        />
+        {virtualTable}
       </div>
     </FullScreen>
   );
-}
+});

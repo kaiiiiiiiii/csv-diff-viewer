@@ -1,76 +1,34 @@
 /**
  * Utility for decoding strings from SharedArrayBuffer
  *
- * TextDecoder cannot decode directly from SharedArrayBuffer.
- * This utility provides a workaround by copying the buffer when necessary.
+ * TextDecoder cannot decode directly from SharedArrayBuffer-backed views, so
+ * those are copied into a regular buffer first. Regular buffers are decoded
+ * straight from the given view.
  */
 
-export class SharedStringDecoder {
-  private static utf8Decoder = new TextDecoder("utf-8");
+const utf8Decoder = new TextDecoder("utf-8");
 
+export class SharedStringDecoder {
   /**
    * Decode string from Uint8Array that may be backed by SharedArrayBuffer
    */
   static decode(buffer: Uint8Array): string {
-    // Check if the buffer is shared
+    if (buffer.length === 0) return "";
     if (this.isSharedArrayBuffer(buffer.buffer)) {
-      return this.decodeFromShared(buffer);
+      // Non-shared copy of just this view
+      return utf8Decoder.decode(new Uint8Array(buffer));
     }
-
-    // Regular ArrayBuffer, decode directly
-    return this.utf8Decoder.decode(buffer);
+    return utf8Decoder.decode(buffer);
   }
 
   /**
-   * Decode string from SharedArrayBuffer-backed Uint8Array
-   */
-  private static decodeFromShared(buffer: Uint8Array): string {
-    // Fast path: check if all ASCII (most CSV data is ASCII)
-    if (this.isAscii(buffer)) {
-      return this.decodeAscii(buffer);
-    }
-
-    // For UTF-8, we need to copy - but only the minimal necessary
-    const tempBuffer = new Uint8Array(buffer.length);
-    tempBuffer.set(buffer);
-    return this.utf8Decoder.decode(tempBuffer);
-  }
-
-  /**
-   * Check if buffer is backed by SharedArrayBuffer
+   * Check if buffer is backed by SharedArrayBuffer (false where unsupported)
    */
   private static isSharedArrayBuffer(buffer: ArrayBufferLike): boolean {
-    return buffer instanceof SharedArrayBuffer;
-  }
-
-  /**
-   * Check if buffer contains only ASCII characters (0-127)
-   */
-  private static isAscii(buffer: Uint8Array): boolean {
-    // Quick check for non-ASCII bytes
-    for (const byte of buffer) {
-      if (byte > 127) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  /**
-   * Convert ASCII bytes to string without TextDecoder to keep SharedArrayBuffer zero-copy
-   */
-  private static decodeAscii(buffer: Uint8Array): string {
-    if (buffer.length === 0) {
-      return "";
-    }
-
-    const chunkSize = 0x8000; // avoid call stack limits for large buffers
-    let result = "";
-    for (let i = 0; i < buffer.length; i += chunkSize) {
-      const chunk = buffer.subarray(i, Math.min(i + chunkSize, buffer.length));
-      result += String.fromCharCode(...chunk);
-    }
-    return result;
+    return (
+      typeof SharedArrayBuffer !== "undefined" &&
+      buffer instanceof SharedArrayBuffer
+    );
   }
 
   /**
@@ -78,20 +36,19 @@ export class SharedStringDecoder {
    */
   static decodeFromSharedChunked(buffer: Uint8Array, chunkSize = 4096): string {
     if (!this.isSharedArrayBuffer(buffer.buffer)) {
-      return this.utf8Decoder.decode(buffer);
+      return utf8Decoder.decode(buffer);
     }
 
     let result = "";
+    // Own decoder: streaming state must not leak into the shared instance
     const decoder = new TextDecoder();
 
     for (let i = 0; i < buffer.length; i += chunkSize) {
-      const chunk = buffer.subarray(i, Math.min(i + chunkSize, buffer.length));
-      const tempChunk = new Uint8Array(chunk.length);
-      tempChunk.set(chunk);
-
-      // Use stream mode for proper UTF-8 handling across chunks
+      const chunk = new Uint8Array(
+        buffer.subarray(i, Math.min(i + chunkSize, buffer.length)),
+      );
       const isLast = i + chunkSize >= buffer.length;
-      result += decoder.decode(tempChunk, { stream: !isLast });
+      result += decoder.decode(chunk, { stream: !isLast });
     }
 
     return result;

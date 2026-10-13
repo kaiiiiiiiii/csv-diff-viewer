@@ -51,6 +51,17 @@ where
     // Use HashSet for excluded columns for O(1) lookup
     let excluded_set: AHashSet<String> = excluded_columns.iter().cloned().collect();
 
+    // Same normalization for indexing and probing the fuzzy candidate lookup
+    let index_value = |cell: &str| -> String {
+        let trimmed = cell.trim();
+        match (case_sensitive, ignore_whitespace) {
+            (true, true) => trimmed.to_string(),
+            (true, false) => cell.to_string(),
+            (false, true) => trimmed.to_lowercase(),
+            (false, false) => cell.to_lowercase(),
+        }
+    };
+
     // Track unmatched target rows
     let mut unmatched_target_indices: AHashSet<usize> = (0..target_rows.len()).collect();
 
@@ -81,12 +92,7 @@ where
             if trimmed.is_empty() {
                 continue;
             }
-            let key = if case_sensitive {
-                (col_idx, if ignore_whitespace { trimmed.to_string() } else { cell.to_string() })
-            } else {
-                (col_idx, if ignore_whitespace { trimmed.to_lowercase() } else { cell.to_lowercase() })
-            };
-            target_value_lookup.entry(key).or_default().push(row_idx);
+            target_value_lookup.entry((col_idx, index_value(cell))).or_default().push(row_idx);
         }
     }
     
@@ -137,7 +143,7 @@ where
             
             for (col_idx, cell) in source_row.iter().enumerate() {
                 let header = &source_headers[col_idx];
-                if excluded_columns.contains(header) {
+                if excluded_set.contains(header) {
                     continue;
                 }
                 if cell.trim().is_empty() {
@@ -145,7 +151,7 @@ where
                 }
                 
                 if let Some(&target_col_idx) = target_header_map.get(header) {
-                     let key = (target_col_idx, cell.to_string());
+                     let key = (target_col_idx, index_value(cell));
                      if let Some(indices) = target_value_lookup.get(&key) {
                          for &idx in indices {
                              if unmatched_target_indices.contains(&idx) {
@@ -182,7 +188,7 @@ where
                     let mut differences = Vec::new();
 
                     for header in &source_headers {
-                        if excluded_columns.contains(header) {
+                        if excluded_set.contains(header) {
                             continue;
                         }
 
@@ -195,13 +201,13 @@ where
                         let source_val_raw = source_row.get(*source_idx).unwrap_or("");
                         let target_val_raw = target_row.get(*target_idx).unwrap_or("");
 
-                        let source_val = normalize_value_with_empty_vs_null(
+                        let source_val = normalize_value_cow(
                             source_val_raw,
                             case_sensitive,
                             ignore_whitespace,
                             ignore_empty_vs_null
                         );
-                        let target_val = normalize_value_with_empty_vs_null(
+                        let target_val = normalize_value_cow(
                             target_val_raw,
                             case_sensitive,
                             ignore_whitespace,
@@ -267,16 +273,40 @@ where
         removed,
         modified,
         unchanged,
-        source: DatasetMetadata {
-            headers: source_headers.clone(),
-            rows: source_rows.iter().map(|r| record_to_hashmap(r, &source_headers)).collect(),
-        },
-        target: DatasetMetadata {
-            headers: target_headers.clone(),
-            rows: target_rows.iter().map(|r| record_to_hashmap(r, &target_headers)).collect(),
-        },
+        source: DatasetMetadata { headers: source_headers, rows: Vec::new() },
+        target: DatasetMetadata { headers: target_headers, rows: Vec::new() },
         key_columns: vec![],
-        excluded_columns: excluded_columns,
+        excluded_columns,
         mode: "content-match".to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(src: &str, tgt: &str, case_sensitive: bool) -> DiffResult {
+        diff_csv_internal(src, tgt, case_sensitive, true, false, vec![], true, |_, _| {}).unwrap()
+    }
+
+    #[test]
+    fn fuzzy_probe_uses_normalized_values_for_case_insensitive() {
+        // Rows differ in "city" and share "name" only in a different case,
+        // so the match must be found via the normalized candidate index.
+        let src = "name,city,note\nALICE,Berlin,hello world\n";
+        let tgt = "name,city,note\nalice,Berlino,hello worlds\n";
+        let r = run(src, tgt, false);
+        assert_eq!(r.modified.len(), 1);
+        assert!(r.added.is_empty() && r.removed.is_empty());
+    }
+
+    #[test]
+    fn fuzzy_probe_case_sensitive_still_exact() {
+        let src = "name,city,note\nALICE,Berlin,hello world\n";
+        let tgt = "name,city,note\nalice,Berlino,hello worlds\n";
+        let r = run(src, tgt, true);
+        // No shared exact value, so no candidates: removed + added
+        assert_eq!(r.removed.len(), 1);
+        assert_eq!(r.added.len(), 1);
+    }
 }

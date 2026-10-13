@@ -45,4 +45,47 @@ describe("createAdvancedFilterFn", () => {
     expect(fn(makeRow({ name: "john", role: "dev" }), "", null)).toBe(true);
     expect(fn(makeRow({ name: "jane", role: "dev" }), "", null)).toBe(false);
   });
+
+  it("negates column search with -column:value", () => {
+    const fn = createAdvancedFilterFn(parseSearchQuery("-name:john"));
+    expect(fn(makeRow({ name: "john", role: "dev" }), "", null)).toBe(false);
+    expect(fn(makeRow({ name: "jane", role: "dev" }), "", null)).toBe(true);
+  });
+
+  it("does not match 'or' inside words", () => {
+    const fn = createAdvancedFilterFn(parseSearchQuery("order"));
+    expect(fn(makeRow({ v: "shipping order" }), "", null)).toBe(true);
+    expect(fn(makeRow({ v: "orange" }), "", null)).toBe(false);
+  });
+
+  describe("modified rows", () => {
+    const modified = {
+      original: {
+        key: "1",
+        type: "modified",
+        sourceRow: { name: "john", city: "berlin" },
+        targetRow: { name: "jane", city: "berlin" },
+      },
+    };
+    const fnFor = (query: string) =>
+      createAdvancedFilterFn(parseSearchQuery(query));
+
+    it("matches the old (source) value in free text", () => {
+      expect(fnFor("john")(modified, "", null)).toBe(true);
+    });
+
+    it("matches the new (target) value in free text", () => {
+      expect(fnFor("jane")(modified, "", null)).toBe(true);
+    });
+
+    it("matches either old or new value with column scope", () => {
+      expect(fnFor("name:john")(modified, "", null)).toBe(true);
+      expect(fnFor("name:jane")(modified, "", null)).toBe(true);
+      expect(fnFor("name:bob")(modified, "", null)).toBe(false);
+    });
+
+    it("excludes rows by old value with -column:value", () => {
+      expect(fnFor("-name:john")(modified, "", null)).toBe(false);
+    });
+  });
 });

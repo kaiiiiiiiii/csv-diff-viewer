@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,9 @@ interface CsvInputProps {
   onDataChange: (data: string, name: string) => void;
 }
 
+const LARGE_FILE_BYTES = 1024 * 1024; // 1MB
+const TYPING_DEBOUNCE_MS = 275;
+
 export function CsvInput({ title, value, onDataChange }: CsvInputProps) {
   const [text, setText] = useState(value || "");
   const [fileName, setFileName] = useState("");
@@ -17,11 +20,53 @@ export function CsvInput({ title, value, onDataChange }: CsvInputProps) {
   const [fileSize, setFileSize] = useState(0);
   const [pendingContent, setPendingContent] = useState<string | null>(null);
 
-  React.useEffect(() => {
-    if (value !== undefined) {
-      setText(value);
+  // Last content handed to the parent, so its echo never overwrites newer typing
+  const lastSentRef = useRef<string | undefined>(value);
+  const pendingTextRef = useRef("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onDataChangeRef = useRef(onDataChange);
+  onDataChangeRef.current = onDataChange;
+
+  const cancelPending = useCallback(() => {
+    if (debounceRef.current !== null) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
     }
-  }, [value]);
+  }, []);
+
+  // Hand over any pending typed text now (blur precedes a Compare click)
+  const flushPending = useCallback(() => {
+    if (debounceRef.current === null) return;
+    clearTimeout(debounceRef.current);
+    debounceRef.current = null;
+    const data = pendingTextRef.current;
+    lastSentRef.current = data;
+    onDataChangeRef.current(data, "Manual Input");
+  }, []);
+
+  useEffect(() => flushPending, [flushPending]);
+
+  useEffect(() => {
+    if (value === undefined || value === lastSentRef.current) return;
+    lastSentRef.current = value;
+    cancelPending();
+    // External reset/replace: large content stays behind the placeholder
+    if (value.length > LARGE_FILE_BYTES) {
+      setText("");
+      setPendingContent(value);
+      setIsLargeFile(true);
+      setFileSize(value.length);
+    } else {
+      setText(value);
+      setPendingContent(null);
+      setIsLargeFile(false);
+    }
+  }, [value, cancelPending]);
+
+  const emit = (data: string, name: string) => {
+    lastSentRef.current = data;
+    onDataChangeRef.current(data, name);
+  };
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 Bytes";
@@ -36,7 +81,7 @@ export function CsvInput({ title, value, onDataChange }: CsvInputProps) {
     if (file) {
       setFileName(file.name);
       setFileSize(file.size);
-      const isLarge = file.size > 1024 * 1024; // 1MB
+      const isLarge = file.size > LARGE_FILE_BYTES;
       setIsLargeFile(isLarge);
 
       const reader = new FileReader();
@@ -49,7 +94,8 @@ export function CsvInput({ title, value, onDataChange }: CsvInputProps) {
           setText("");
           setPendingContent(content);
         }
-        onDataChange(content, file.name);
+        cancelPending();
+        emit(content, file.name);
       };
       reader.readAsText(file);
     }
@@ -61,7 +107,17 @@ export function CsvInput({ title, value, onDataChange }: CsvInputProps) {
     setFileName("Manual Input");
     setIsLargeFile(false);
     setPendingContent(null);
-    onDataChange(newText, "Manual Input");
+    cancelPending();
+    pendingTextRef.current = newText;
+    if (newText.length > LARGE_FILE_BYTES) {
+      // Large paste: hand over right away
+      emit(newText, "Manual Input");
+      return;
+    }
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      emit(newText, "Manual Input");
+    }, TYPING_DEBOUNCE_MS);
   };
 
   const handleShowAnyway = () => {
@@ -117,6 +173,7 @@ export function CsvInput({ title, value, onDataChange }: CsvInputProps) {
             className="min-h-[200px] font-mono text-sm"
             value={text}
             onChange={handleTextChange}
+            onBlur={flushPending}
             disabled={isLargeFile}
           />
         </div>

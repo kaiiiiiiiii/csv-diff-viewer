@@ -1,3 +1,5 @@
+> Note (refactor, 2026-10-13): `diff_chunk`, `initDiffer`/`init_differ`, `init_wasm_thread_pool`, `USE_BINARY_ENCODING` and the streaming chunk API mentioned below were removed in favour of the parallel binary exports (`diff_csv_*_parallel_binary`).
+
 # Time-to-30% Improvements (Startup / Initial Progress)
 
 💡 Overview

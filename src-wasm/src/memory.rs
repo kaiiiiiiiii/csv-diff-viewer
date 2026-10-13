@@ -1,37 +1,25 @@
 use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use std::cell::Cell;
-use std::thread_local;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// WASM memory allocation helpers and last binary result metadata
 
-/// Storage for last binary result length.
-/// # Safety
-/// These statics are mutated from other modules; ensure proper synchronization if used by multiple threads.
-static mut LAST_BINARY_RESULT_LENGTH: usize = 0;
-static mut LAST_BINARY_RESULT_CAPACITY: usize = 0;
-
-/// Get the last binary result length
-#[wasm_bindgen]
-pub fn get_last_binary_result_length() -> usize {
-    unsafe { LAST_BINARY_RESULT_LENGTH }
-}
-
-/// Get the last binary result capacity
-#[wasm_bindgen]
-pub fn get_last_binary_result_capacity() -> usize {
-    unsafe { LAST_BINARY_RESULT_CAPACITY }
-}
+/// Metadata of the last binary result. Atomics keep writes from parallel code race-free;
+/// the length/capacity pair is only read after the producing call returns, so Relaxed suffices.
+static LAST_BINARY_RESULT_LENGTH: AtomicUsize = AtomicUsize::new(0);
+static LAST_BINARY_RESULT_CAPACITY: AtomicUsize = AtomicUsize::new(0);
 
 // Thread-local dummy variable to ensure TLS initialization symbols
 // like `__wasm_init_tls` are emitted in the final WASM binary
-// when building with `parallel` feature enabled.
+// when building with threads.
 // This is required for wasm-bindgen-rayon to prepare the module
 // for threading.
 // Use the stable `thread_local!` macro to ensure a thread-local symbol
 // is emitted. This generates necessary TLS init data which wasm-bindgen
 // expects to find (`__wasm_init_tls`) when preparing the module for
-// threading. We only enable it for wasm32 + parallel feature.
-#[cfg(all(target_arch = "wasm32", feature = "parallel"))]
+// threading. We only enable it for wasm32.
+#[cfg(target_arch = "wasm32")]
 thread_local! {
     static WASM_THREAD_TLS_DUMMY: Cell<u32> = Cell::new(0);
 }
@@ -71,23 +59,40 @@ pub fn dealloc(ptr: *mut u8, size: usize) {
 }
 
 pub(crate) fn set_last_binary_result_length(len: usize) {
-    unsafe {
-        LAST_BINARY_RESULT_LENGTH = len;
-    }
+    LAST_BINARY_RESULT_LENGTH.store(len, Ordering::Relaxed);
 }
 
 pub(crate) fn set_last_binary_result_capacity(cap: usize) {
-    unsafe {
-        LAST_BINARY_RESULT_CAPACITY = cap;
-    }
+    LAST_BINARY_RESULT_CAPACITY.store(cap, Ordering::Relaxed);
 }
 
 #[wasm_bindgen]
 pub fn get_binary_result_length() -> usize {
-    unsafe { LAST_BINARY_RESULT_LENGTH }
+    LAST_BINARY_RESULT_LENGTH.load(Ordering::Relaxed)
 }
 
 #[wasm_bindgen]
 pub fn get_binary_result_capacity() -> usize {
-    unsafe { LAST_BINARY_RESULT_CAPACITY }
+    LAST_BINARY_RESULT_CAPACITY.load(Ordering::Relaxed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn last_binary_result_metadata_roundtrip() {
+        set_last_binary_result_length(123);
+        set_last_binary_result_capacity(456);
+        assert_eq!(get_binary_result_length(), 123);
+        assert_eq!(get_binary_result_capacity(), 456);
+    }
+
+    #[test]
+    fn alloc_dealloc() {
+        let p = alloc(16);
+        assert!(!p.is_null());
+        dealloc(p, 16);
+        dealloc(std::ptr::null_mut(), 0);
+    }
 }

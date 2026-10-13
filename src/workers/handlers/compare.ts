@@ -1,22 +1,21 @@
+import { shouldFallbackToSequential, toFatalError } from "../fallback";
 import {
-  diff_csv,
   diff_csv_binary,
   diff_csv_parallel_binary,
-  diff_csv_primary_key,
   diff_csv_primary_key_binary,
-  diff_csv_primary_key_parallel,
+  diff_csv_primary_key_parallel_binary,
   get_binary_result_capacity,
   get_binary_result_length,
 } from "../../../src-wasm/pkg/csv_diff_wasm.js";
 import { decodeBinaryResult } from "../../lib/binary-decoder";
 import {
-  USE_BINARY_ENCODING,
   USE_PARALLEL_PROCESSING,
+  canUseThreads,
   getWasmInstance,
   getWasmMemory,
-  initWasmThreadPool,
 } from "../wasm-context";
 import { createWorkerLogger } from "../worker-logger";
+import { countRows, parseThreadProgress, throttleProgress } from "../progress";
 import type {
   ComparePayload,
   PerformanceMetrics,
@@ -29,7 +28,6 @@ type ThreadStatus = NonNullable<WorkerLogPayload["details"]> & {
   status: "idle" | "running" | "completed" | "error";
 };
 
-const MAX_TRANSFERABLE_DEPTH = 10;
 const compareLog = createWorkerLogger("Compare Handler");
 
 // Emit thread status to main thread
@@ -54,498 +52,155 @@ const emitThreadStatus = (
   }
 };
 
-export async function handleCompare(
+/**
+ * Build the progress callback handed to the parallel WASM exports. THREAD_PROGRESS
+ * messages become per-thread status updates; everything else is a global update.
+ * Both are throttled so a chunk-heavy diff does not flood the main thread.
+ */
+const createParallelProgress = (
+  emitProgress: ProgressCallback,
+  task: string,
+): ProgressCallback => {
+  const globalProgress = throttleProgress(emitProgress);
+  const lastThreadEmit = new Map<number, number>();
+  return (percent, message) => {
+    const thread = parseThreadProgress(message);
+    if (!thread) {
+      globalProgress(percent, message);
+      return;
+    }
+    const now = performance.now();
+    const last = lastThreadEmit.get(thread.threadId) ?? -Infinity;
+    if (now - last < 50) return;
+    lastThreadEmit.set(thread.threadId, now);
+    emitThreadStatus(
+      thread.threadId,
+      "running",
+      task,
+      thread.globalProgress ?? percent,
+      thread.processed,
+      thread.perThreadTotal,
+    );
+  };
+};
+
+const getThreadCount = (): number =>
+  Math.max(
+    1,
+    (typeof navigator !== "undefined"
+      ? navigator.hardwareConcurrency || 4
+      : 4) - 1,
+  );
+
+export function handleCompare(
   requestId: number,
   payload: ComparePayload,
   postMessage: (msg: WorkerResponse, transfer?: Array<Transferable>) => void,
   emitProgress: ProgressCallback,
   currentMetrics: PerformanceMetrics | null,
 ) {
-  const {
-    comparisonMode,
-    keyColumns,
-    caseSensitive = false,
-    ignoreWhitespace = false,
-    ignoreEmptyVsNull = false,
-    excludedColumns = [],
-    sourceRaw,
-    targetRaw,
-    hasHeaders,
-  } = payload;
-
-  // Calculate actual row counts (excluding headers if present)
-  const sourceRowCount =
-    sourceRaw.trim().split("\n").length - (hasHeaders ? 1 : 0);
-  const targetRowCount =
-    targetRaw.trim().split("\n").length - (hasHeaders ? 1 : 0);
-  const totalRowCount = Math.max(sourceRowCount, targetRowCount);
-
-  // Log invocation with small context (do not log raw CSV content)
-  compareLog.info("Compare handler invoked", {
-    requestId,
-    comparisonMode,
-    useBinaryEncoding: USE_BINARY_ENCODING,
-    useParallelProcessing: USE_PARALLEL_PROCESSING,
-    sourceSize: sourceRaw.length,
-    targetSize: targetRaw.length,
-    hasHeaders,
-    keyColumnCount: keyColumns?.length ?? 0,
-    excludedColumnCount: excludedColumns.length,
-  });
-
-  if (!sourceRaw || !targetRaw) {
-    // Validate inputs early and throw; the outer try/catch will handle posting and logging
-    throw new Error("Raw CSV data is required for comparison.");
-  }
-
-  let results;
-  const wasmMemory = getWasmMemory();
-  const wasmInstance = getWasmInstance();
-  const releaseBinaryBuffer = (ptr: number, capacity: number): void => {
-    if (!ptr || !capacity) return;
-    const deallocFn = (
-      wasmInstance as { dealloc?: (p: number, size: number) => void }
-    ).dealloc;
-    if (typeof deallocFn === "function") {
-      deallocFn(ptr, capacity);
-    } else {
-      compareLog.warn(
-        "WASM dealloc function unavailable; skipping buffer release",
-        {
-          requestId,
-        },
-      );
-    }
-  };
-
   try {
-    if (USE_BINARY_ENCODING) {
-      // Use high-performance binary encoding
-      if (comparisonMode === "primary-key") {
+    const {
+      comparisonMode,
+      keyColumns,
+      caseSensitive = false,
+      ignoreWhitespace = false,
+      ignoreEmptyVsNull = false,
+      excludedColumns = [],
+      sourceRaw,
+      targetRaw,
+      hasHeaders,
+    } = payload;
+
+    if (!sourceRaw || !targetRaw) {
+      throw new Error("Raw CSV data is required for comparison.");
+    }
+
+    // Estimated row counts (excluding headers if present), used for progress only
+    const totalRowCount = Math.max(
+      countRows(sourceRaw, hasHeaders !== false),
+      countRows(targetRaw, hasHeaders !== false),
+    );
+
+    // Log invocation with small context (do not log raw CSV content)
+    compareLog.info("Compare handler invoked", {
+      requestId,
+      comparisonMode,
+      useParallelProcessing: USE_PARALLEL_PROCESSING,
+      sourceSize: sourceRaw.length,
+      targetSize: targetRaw.length,
+      hasHeaders,
+      keyColumnCount: keyColumns?.length ?? 0,
+      excludedColumnCount: excludedColumns.length,
+    });
+
+    const wasmMemory = getWasmMemory();
+    const wasmInstance = getWasmInstance();
+    const releaseBinaryBuffer = (ptr: number, capacity: number): void => {
+      if (!ptr || !capacity) return;
+      const deallocFn = (
+        wasmInstance as { dealloc?: (p: number, size: number) => void }
+      ).dealloc;
+      if (typeof deallocFn === "function") {
+        deallocFn(ptr, capacity);
+      } else {
+        compareLog.warn(
+          "WASM dealloc function unavailable; skipping buffer release",
+          { requestId },
+        );
+      }
+    };
+
+    // Decode the binary result held at ptr, then free the WASM buffer
+    const decodeAndRelease = (ptr: number) => {
+      const length = get_binary_result_length();
+      const capacity = get_binary_result_capacity();
+      try {
+        return decodeBinaryResult(wasmMemory, ptr, length);
+      } finally {
+        releaseBinaryBuffer(ptr, capacity);
+      }
+    };
+
+    const progress = throttleProgress(emitProgress);
+    const sequentialProgress = (percent: number, message: string) =>
+      progress(percent, message);
+
+    // Run a parallel export with per-thread status; returns the decoded result
+    const runParallel = (
+      task: string,
+      call: (onProgress: ProgressCallback) => number,
+    ) => {
+      const numThreads = getThreadCount();
+      const perThreadTotal = Math.ceil(totalRowCount / numThreads);
+      for (let i = 0; i < numThreads; i++) {
+        emitThreadStatus(i, "running", task, 0, 0, perThreadTotal);
+      }
+      let ok = false;
+      try {
+        const ptr = call(createParallelProgress(emitProgress, task));
+        const decoded = decodeAndRelease(ptr);
+        ok = true;
+        return decoded;
+      } finally {
+        for (let i = 0; i < numThreads; i++) {
+          if (ok) emitThreadStatus(i, "completed", "Comparison complete");
+          else emitThreadStatus(i, "error", "Parallel comparison failed");
+        }
+      }
+    };
+
+    let results;
+
+    if (comparisonMode === "primary-key") {
+      const runSequential = () => {
         compareLog.debug("Calling WASM method", {
           method: "diff_csv_primary_key_binary",
           requestId,
         });
         emitProgress(0, "Starting comparison (Primary Key, Binary)...");
-        const resultPtr = diff_csv_primary_key_binary(
-          sourceRaw,
-          targetRaw,
-          keyColumns,
-          caseSensitive,
-          ignoreWhitespace,
-          ignoreEmptyVsNull,
-          excludedColumns,
-          hasHeaders !== false,
-          (percent: number, message: string) => emitProgress(percent, message),
-        );
-
-        // Decode binary result
-        const resultLength = get_binary_result_length();
-        results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
-
-        // Log counts
-        compareLog.info("Decoded binary diff counts", {
-          requestId,
-          added: results.added.length,
-          removed: results.removed.length,
-          modified: results.modified.length,
-          unchanged: results.unchanged.length,
-        });
-        // Clean up WASM memory
-        emitProgress(100, "Comparison complete");
-      } else {
-        if (USE_PARALLEL_PROCESSING) {
-          try {
-            compareLog.debug("Calling WASM method", {
-              method: "diff_csv_parallel_binary",
-              requestId,
-            });
-            emitProgress(0, "Starting comparison (Content Match, Parallel)...");
-
-            // Initialize thread pool for optimal parallel performance
-            const numThreads = Math.max(
-              1,
-              (typeof navigator !== "undefined"
-                ? navigator.hardwareConcurrency || 4
-                : 4) - 1,
-            );
-
-            try {
-              await initWasmThreadPool(numThreads);
-              compareLog.debug("Thread pool initialized", {
-                numThreads,
-                requestId,
-              });
-            } catch (error) {
-              compareLog.warn(
-                "Failed to initialize thread pool, continuing with default",
-                {
-                  error: (error as Error).message,
-                  requestId,
-                },
-              );
-            }
-
-            // Emit thread status for parallel processing
-            const perThreadTotalContent = Math.ceil(totalRowCount / numThreads);
-            for (let i = 0; i < numThreads; i++) {
-              emitThreadStatus(
-                i,
-                "running",
-                "Parallel Content Match",
-                0,
-                0,
-                perThreadTotalContent,
-              );
-            }
-
-            const resultPtr = diff_csv_parallel_binary(
-              sourceRaw,
-              targetRaw,
-              caseSensitive,
-              ignoreWhitespace,
-              ignoreEmptyVsNull,
-              excludedColumns,
-              hasHeaders !== false,
-              (percent: number, message: string) => {
-                // Check for THREAD_PROGRESS messages (both legacy and JSON formats)
-                if (typeof message === "string") {
-                  let threadProgressFound = false;
-
-                  // Parse legacy format: THREAD_PROGRESS|<id>|<processed>|<perThreadTotal>
-                  if (
-                    message.startsWith("THREAD_PROGRESS|") &&
-                    !message.includes("_JSON|")
-                  ) {
-                    const parts = message.split("|");
-                    if (parts.length === 4) {
-                      const threadId = parseInt(parts[1], 10);
-                      const processed = parseInt(parts[2], 10);
-                      const perThreadTotal = parseInt(parts[3], 10);
-                      if (!Number.isNaN(threadId)) {
-                        emitThreadStatus(
-                          threadId,
-                          "running",
-                          `Parallel Content Match`,
-                          percent,
-                          processed,
-                          perThreadTotal,
-                        );
-                        threadProgressFound = true;
-                      }
-                    }
-                  }
-                  // Parse JSON format: THREAD_PROGRESS_JSON|{"threadId": 0, "processed": 50, "perThreadTotal": 125, "globalProgress": 75.0}
-                  else if (message.startsWith("THREAD_PROGRESS_JSON|")) {
-                    const jsonStr = message.split("|", 2)[1];
-                    try {
-                      const data = JSON.parse(jsonStr);
-                      if (
-                        typeof data.threadId === "number" &&
-                        typeof data.processed === "number" &&
-                        typeof data.perThreadTotal === "number"
-                      ) {
-                        // Use the global progress from the JSON if available, otherwise use the percent parameter
-                        const globalProgress =
-                          typeof data.globalProgress === "number"
-                            ? data.globalProgress
-                            : percent;
-
-                        emitThreadStatus(
-                          data.threadId,
-                          "running",
-                          `Parallel Content Match`,
-                          globalProgress,
-                          data.processed,
-                          data.perThreadTotal,
-                        );
-                        threadProgressFound = true;
-                      }
-                    } catch (e) {
-                      compareLog.warn("Failed to parse THREAD_PROGRESS_JSON", {
-                        message,
-                        error: (e as Error).message,
-                      });
-                    }
-                  }
-
-                  // Only fall back to global updates if no thread-specific progress was found
-                  // and this is a key progress message (avoid spamming for every chunk)
-                  if (
-                    !threadProgressFound &&
-                    (percent % 5 < 1 || message.includes("Complete"))
-                  ) {
-                    // Update only the overall worker status, not individual threads
-                    emitProgress(percent, message);
-                  } else if (!threadProgressFound) {
-                    // Still emit progress for the main progress bar
-                    emitProgress(percent, message);
-                  }
-                } else {
-                  emitProgress(percent, message);
-                }
-              },
-            );
-
-            // Decode binary result
-            const resultLength = get_binary_result_length();
-            const resultCapacity = get_binary_result_capacity();
-            results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
-            releaseBinaryBuffer(resultPtr, resultCapacity);
-
-            // Mark threads as completed
-            for (let i = 0; i < numThreads; i++) {
-              emitThreadStatus(i, "completed", "Comparison complete");
-            }
-
-            emitProgress(100, "Comparison complete (Parallel)");
-          } catch (error) {
-            compareLog.warn(
-              "Parallel processing failed; falling back to single-threaded binary execution",
-              {
-                message: (error as Error).message,
-                stack: (error as Error).stack,
-              },
-            );
-            // Fallback to binary
-            const resultPtr = diff_csv_binary(
-              sourceRaw,
-              targetRaw,
-              caseSensitive,
-              ignoreWhitespace,
-              ignoreEmptyVsNull,
-              excludedColumns,
-              hasHeaders !== false,
-              (percent: number, message: string) =>
-                emitProgress(percent, message),
-            );
-            const resultLength = get_binary_result_length();
-            const resultCapacity = get_binary_result_capacity();
-            results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
-            releaseBinaryBuffer(resultPtr, resultCapacity);
-            emitProgress(100, "Comparison complete");
-          }
-        } else {
-          compareLog.debug("Calling WASM method", {
-            method: "diff_csv_binary",
-            requestId,
-          });
-          emitProgress(0, "Starting comparison (Content Match, Binary)...");
-          const resultPtr = diff_csv_binary(
-            sourceRaw,
-            targetRaw,
-            caseSensitive,
-            ignoreWhitespace,
-            ignoreEmptyVsNull,
-            excludedColumns,
-            hasHeaders !== false,
-            (percent: number, message: string) =>
-              emitProgress(percent, message),
-          );
-
-          // Decode binary result
-          const resultLength = get_binary_result_length();
-          const resultCapacity = get_binary_result_capacity();
-          results = decodeBinaryResult(wasmMemory, resultPtr, resultLength);
-          compareLog.info("Decoded binary diff counts", {
-            requestId,
-            added: Array.isArray(results.added) ? results.added.length : null,
-            removed: Array.isArray(results.removed)
-              ? results.removed.length
-              : null,
-            modified: Array.isArray(results.modified)
-              ? results.modified.length
-              : null,
-            unchanged: Array.isArray(results.unchanged)
-              ? results.unchanged.length
-              : null,
-          });
-
-          // Clean up WASM memory
-          releaseBinaryBuffer(resultPtr, resultCapacity);
-          emitProgress(100, "Comparison complete");
-        }
-      }
-    } else {
-      // Use traditional JSON encoding (for debugging or compatibility)
-      if (comparisonMode === "primary-key") {
-        // Try parallel processing first if enabled
-        if (USE_PARALLEL_PROCESSING) {
-          try {
-            compareLog.debug("Calling WASM method", {
-              method: "diff_csv_primary_key_parallel",
-              requestId,
-            });
-            emitProgress(0, "Starting comparison (Primary Key, Parallel)...");
-
-            // Initialize thread pool for optimal parallel performance
-            const numThreads = Math.max(
-              1,
-              (typeof navigator !== "undefined"
-                ? navigator.hardwareConcurrency || 4
-                : 4) - 1,
-            );
-
-            try {
-              await initWasmThreadPool(numThreads);
-              compareLog.debug("Thread pool initialized", {
-                numThreads,
-                requestId,
-              });
-            } catch (error) {
-              compareLog.warn(
-                "Failed to initialize thread pool, continuing with default",
-                {
-                  error: (error as Error).message,
-                  requestId,
-                },
-              );
-            }
-
-            // Emit thread status for parallel processing
-            const perThreadTotalPk = Math.ceil(totalRowCount / numThreads);
-            for (let i = 0; i < numThreads; i++) {
-              emitThreadStatus(
-                i,
-                "running",
-                "Parallel CSV comparison",
-                0,
-                0,
-                perThreadTotalPk,
-              );
-            }
-
-            results = diff_csv_primary_key_parallel(
-              sourceRaw,
-              targetRaw,
-              keyColumns,
-              caseSensitive,
-              ignoreWhitespace,
-              ignoreEmptyVsNull,
-              excludedColumns,
-              hasHeaders !== false,
-              (percent: number, message: string) => {
-                // Check for THREAD_PROGRESS messages (both legacy and JSON formats)
-                if (typeof message === "string") {
-                  let threadProgressFound = false;
-
-                  // Parse legacy format: THREAD_PROGRESS|<id>|<processed>|<perThreadTotal>
-                  if (
-                    message.startsWith("THREAD_PROGRESS|") &&
-                    !message.includes("_JSON|")
-                  ) {
-                    const parts = message.split("|");
-                    if (parts.length === 4) {
-                      const threadId = parseInt(parts[1], 10);
-                      const processed = parseInt(parts[2], 10);
-                      const perThreadTotal = parseInt(parts[3], 10);
-                      if (!Number.isNaN(threadId)) {
-                        emitThreadStatus(
-                          threadId,
-                          "running",
-                          `Parallel CSV comparison`,
-                          percent,
-                          processed,
-                          perThreadTotal,
-                        );
-                        threadProgressFound = true;
-                      }
-                    }
-                  }
-                  // Parse JSON format: THREAD_PROGRESS_JSON|{"threadId": 0, "processed": 50, "perThreadTotal": 125, "globalProgress": 75.0}
-                  else if (message.startsWith("THREAD_PROGRESS_JSON|")) {
-                    const jsonStr = message.split("|", 2)[1];
-                    try {
-                      const data = JSON.parse(jsonStr);
-                      if (
-                        typeof data.threadId === "number" &&
-                        typeof data.processed === "number" &&
-                        typeof data.perThreadTotal === "number"
-                      ) {
-                        // Use the global progress from the JSON if available
-                        const globalProgress =
-                          typeof data.globalProgress === "number"
-                            ? data.globalProgress
-                            : percent;
-
-                        emitThreadStatus(
-                          data.threadId,
-                          "running",
-                          `Parallel CSV comparison`,
-                          globalProgress,
-                          data.processed,
-                          data.perThreadTotal,
-                        );
-                        threadProgressFound = true;
-                      }
-                    } catch (e) {
-                      compareLog.warn("Failed to parse THREAD_PROGRESS_JSON", {
-                        message,
-                        error: (e as Error).message,
-                      });
-                    }
-                  }
-
-                  // Only fall back to global updates if no thread-specific progress was found
-                  // and this is a key progress message (avoid spamming for every chunk)
-                  if (
-                    !threadProgressFound &&
-                    (percent % 5 < 1 || message.includes("Complete"))
-                  ) {
-                    // Update only the overall worker status, not individual threads
-                    emitProgress(percent, message);
-                  } else if (!threadProgressFound) {
-                    // Still emit progress for the main progress bar
-                    emitProgress(percent, message);
-                  }
-                } else {
-                  emitProgress(percent, message);
-                }
-              },
-            );
-
-            // Mark threads as completed
-            for (let i = 0; i < numThreads; i++) {
-              emitThreadStatus(i, "completed", "Comparison complete");
-            }
-
-            emitProgress(100, "Comparison complete (Parallel)");
-          } catch (error) {
-            // Fallback to non-parallel if parallel fails
-            compareLog.warn(
-              "Parallel processing failed; falling back to single-threaded execution",
-              {
-                message: (error as Error).message,
-                stack: (error as Error).stack,
-              },
-            );
-            emitProgress(0, "Starting comparison (Primary Key)...");
-            compareLog.debug("Calling WASM method", {
-              method: "diff_csv_primary_key",
-              requestId,
-            });
-            results = diff_csv_primary_key(
-              sourceRaw,
-              targetRaw,
-              keyColumns,
-              caseSensitive,
-              ignoreWhitespace,
-              ignoreEmptyVsNull,
-              excludedColumns,
-              hasHeaders !== false,
-              false,
-              (percent: number, message: string) =>
-                emitProgress(percent, message),
-            );
-            emitProgress(100, "Comparison complete");
-          }
-        } else {
-          emitProgress(0, "Starting comparison (Primary Key)...");
-          compareLog.debug("Calling WASM method", {
-            method: "diff_csv_primary_key",
-            requestId,
-          });
-          results = diff_csv_primary_key(
+        return decodeAndRelease(
+          diff_csv_primary_key_binary(
             sourceRaw,
             targetRaw,
             keyColumns,
@@ -554,31 +209,102 @@ export async function handleCompare(
             ignoreEmptyVsNull,
             excludedColumns,
             hasHeaders !== false,
-            false,
-            (percent: number, message: string) =>
-              emitProgress(percent, message),
+            sequentialProgress,
+          ),
+        );
+      };
+
+      if (canUseThreads()) {
+        try {
+          compareLog.debug("Calling WASM method", {
+            method: "diff_csv_primary_key_parallel_binary",
+            requestId,
+          });
+          emitProgress(0, "Starting comparison (Primary Key, Parallel)...");
+          results = runParallel("Parallel Primary Key", (onProgress) =>
+            diff_csv_primary_key_parallel_binary(
+              sourceRaw,
+              targetRaw,
+              keyColumns,
+              caseSensitive,
+              ignoreWhitespace,
+              ignoreEmptyVsNull,
+              excludedColumns,
+              hasHeaders !== false,
+              onProgress,
+            ),
           );
-          emitProgress(100, "Comparison complete");
+        } catch (error) {
+          if (!shouldFallbackToSequential(error)) throw toFatalError(error);
+          compareLog.warn(
+            "Parallel processing failed; falling back to single-threaded binary execution",
+            {
+              message: (error as Error).message,
+              stack: (error as Error).stack,
+            },
+          );
+          results = runSequential();
         }
       } else {
+        results = runSequential();
+      }
+    } else {
+      const runSequential = () => {
         compareLog.debug("Calling WASM method", {
-          method: "diff_csv",
+          method: "diff_csv_binary",
           requestId,
         });
-        emitProgress(0, "Starting comparison (Content Match)...");
-        results = diff_csv(
-          sourceRaw,
-          targetRaw,
-          caseSensitive,
-          ignoreWhitespace,
-          ignoreEmptyVsNull,
-          excludedColumns,
-          hasHeaders !== false,
-          (percent: number, message: string) => emitProgress(percent, message),
+        emitProgress(0, "Starting comparison (Content Match, Binary)...");
+        return decodeAndRelease(
+          diff_csv_binary(
+            sourceRaw,
+            targetRaw,
+            caseSensitive,
+            ignoreWhitespace,
+            ignoreEmptyVsNull,
+            excludedColumns,
+            hasHeaders !== false,
+            sequentialProgress,
+          ),
         );
-        emitProgress(100, "Comparison complete");
+      };
+
+      if (canUseThreads()) {
+        try {
+          compareLog.debug("Calling WASM method", {
+            method: "diff_csv_parallel_binary",
+            requestId,
+          });
+          emitProgress(0, "Starting comparison (Content Match, Parallel)...");
+          results = runParallel("Parallel Content Match", (onProgress) =>
+            diff_csv_parallel_binary(
+              sourceRaw,
+              targetRaw,
+              caseSensitive,
+              ignoreWhitespace,
+              ignoreEmptyVsNull,
+              excludedColumns,
+              hasHeaders !== false,
+              onProgress,
+            ),
+          );
+        } catch (error) {
+          if (!shouldFallbackToSequential(error)) throw toFatalError(error);
+          compareLog.warn(
+            "Parallel processing failed; falling back to single-threaded binary execution",
+            {
+              message: (error as Error).message,
+              stack: (error as Error).stack,
+            },
+          );
+          results = runSequential();
+        }
+      } else {
+        results = runSequential();
       }
     }
+
+    emitProgress(100, "Comparison complete");
 
     // Calculate performance metrics
     if (currentMetrics) {
@@ -586,80 +312,24 @@ export async function handleCompare(
       currentMetrics.memoryUsed = wasmMemory.buffer.byteLength / 1024 / 1024; // MB
     }
 
-    // Make sure we have results
-    if (results === undefined || results === null) {
-      const msg = "Comparison did not return any results";
-      compareLog.error("No results from compare", { requestId, message: msg });
-      postMessage({
-        requestId,
-        type: "compare-error",
-        data: { message: msg },
-        metrics: currentMetrics || undefined,
-      });
-      return;
-    }
+    // The decoder yields a plain object (strings/arrays), so nothing to transfer
+    postMessage({
+      requestId,
+      type: "compare-complete",
+      data: results,
+      metrics: currentMetrics || undefined,
+    });
 
-    // Post results with performance metrics using Transferable ArrayBuffers
-    const transferables: Array<Transferable> = [];
-
-    // Extract any ArrayBuffer objects from the results for zero-copy transfer
-    const seen = new WeakSet();
-    const extractTransferables = (obj: any, depth = 0): void => {
-      if (depth > MAX_TRANSFERABLE_DEPTH) return;
-
-      if (obj instanceof ArrayBuffer) {
-        transferables.push(obj);
-      } else if (ArrayBuffer.isView(obj)) {
-        transferables.push(obj.buffer);
-      } else if (obj && typeof obj === "object") {
-        // Skip if we've seen this object (circular reference)
-        if (seen.has(obj)) return;
-        seen.add(obj);
-
-        Object.values(obj).forEach((val) =>
-          extractTransferables(val, depth + 1),
-        );
-      }
-    };
-
-    extractTransferables(results);
-
-    postMessage(
-      {
-        requestId,
-        type: "compare-complete",
-        data: results,
-        metrics: currentMetrics || undefined,
+    compareLog.success("Compare complete", {
+      requestId,
+      counts: {
+        added: results.added.length,
+        removed: results.removed.length,
+        modified: results.modified.length,
+        unchanged: results.unchanged.length,
       },
-      transferables.length > 0 ? transferables : [],
-    );
-
-    // Log success after postMessage completes
-    try {
-      const counts = {
-        added: Array.isArray(results.added) ? results.added.length : null,
-        removed: Array.isArray(results.removed) ? results.removed.length : null,
-        modified: Array.isArray(results.modified)
-          ? results.modified.length
-          : null,
-        unchanged: Array.isArray(results.unchanged)
-          ? results.unchanged.length
-          : null,
-      };
-
-      compareLog.success("Compare complete", {
-        requestId,
-        counts,
-        transferred: transferables.length,
-        metrics: currentMetrics ?? undefined,
-      });
-    } catch (logErr) {
-      // Avoid breaking the worker when logging fails
-      compareLog.warn("Failed to emit compare success log", {
-        requestId,
-        message: (logErr as Error).message,
-      });
-    }
+      metrics: currentMetrics ?? undefined,
+    });
   } catch (err: any) {
     const message = err?.message ?? String(err);
     const stack = err?.stack ?? undefined;
@@ -674,6 +344,5 @@ export async function handleCompare(
       data: { message, stack },
       metrics: currentMetrics || undefined,
     });
-    return;
   }
 }

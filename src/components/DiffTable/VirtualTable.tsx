@@ -57,6 +57,13 @@ export default function VirtualTable({
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
+                    aria-sort={
+                      header.column.getIsSorted() === "asc"
+                        ? "ascending"
+                        : header.column.getIsSorted() === "desc"
+                          ? "descending"
+                          : undefined
+                    }
                     className="h-12 px-4 text-left align-middle font-medium text-muted-foreground bg-background"
                     style={{ width: header.getSize() }}
                   >
@@ -99,6 +106,7 @@ export default function VirtualTable({
                               size="icon"
                               className="h-8 w-8 shrink-0"
                               onClick={() => column.setFilterValue(undefined)}
+                              aria-label="Clear column filter"
                             >
                               <X className="h-3 w-3" />
                             </Button>

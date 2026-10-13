@@ -2,6 +2,7 @@ import {
   parse_csv_headers_only,
   parse_csv_with_progress,
 } from "../../../src-wasm/pkg/csv_diff_wasm.js";
+import { throttleProgress } from "../progress";
 import type { ParsePayload, WorkerResponse } from "../types";
 
 export function handleParse(
@@ -11,10 +12,8 @@ export function handleParse(
 ) {
   const { csvText, name, hasHeaders, headersOnly = false } = payload;
 
-  // Note: parse_csv is imported directly from the pkg, but we could also use
-  // getWasmInstance().parse_csv if we wanted to be consistent with dynamic loading.
-  // However, since we're using the glue code, direct import is fine as long as
-  // initWasm has been called (which sets up the wasm instance in the glue code).
+  // parse_csv_headers_only / parse_csv_with_progress are imported straight from
+  // the wasm-bindgen glue, which is ready once initWasm has run.
 
   const postProgress = (percent: number, message: string) => {
     postMessage({
@@ -24,11 +23,14 @@ export function handleParse(
     });
   };
 
-  // Always use streaming parser for better performance and memory efficiency
-  // The streaming parser now handles both headers-only and full parsing with progress
+  // Headers-only skips row parsing; the full parse reports progress
   const result = headersOnly
     ? parse_csv_headers_only(csvText, hasHeaders !== false)
-    : parse_csv_with_progress(csvText, hasHeaders !== false, postProgress);
+    : parse_csv_with_progress(
+        csvText,
+        hasHeaders !== false,
+        throttleProgress(postProgress),
+      );
 
   postMessage({
     requestId,

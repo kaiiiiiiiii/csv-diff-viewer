@@ -6,7 +6,7 @@ import { SharedStringDecoder } from "./shared-string-decoder";
  * This module provides zero-copy binary decoding for diff results,
  * eliminating JSON serialization overhead.
  *
- * Binary format matches src-wasm/src/binary.rs:
+ * Binary format matches src-wasm/src/binary_encoder.rs:
  *
  * Header (20 bytes):
  * - total_rows: u32 (4 bytes)
@@ -78,6 +78,8 @@ export class BinaryDecoder {
   private buffer: Uint8Array;
   private view: DataView;
   private position: number;
+  // Column names repeat on every row: decode each distinct one once.
+  private internBuckets = new Map<number, Array<[number, number, string]>>();
 
   constructor(buffer: ArrayBuffer | Uint8Array) {
     this.buffer =
@@ -95,7 +97,7 @@ export class BinaryDecoder {
    */
   decode(): DiffResult {
     // Read header
-    const _totalRows = this.readU32();
+    this.readU32(); // total_rows (derived from the per-type counts)
     const addedCount = this.readU32();
     const removedCount = this.readU32();
     const modifiedCount = this.readU32();
@@ -110,7 +112,7 @@ export class BinaryDecoder {
 
     // Read added rows
     for (let i = 0; i < addedCount; i++) {
-      const _rowType = this.readU8(); // Should be 1
+      this.readU8(); // row_type, should be 1
       const key = this.readString();
       const targetRow = this.readRowData();
       result.added.push({ key, targetRow });
@@ -118,7 +120,7 @@ export class BinaryDecoder {
 
     // Read removed rows
     for (let i = 0; i < removedCount; i++) {
-      const _rowType = this.readU8(); // Should be 2
+      this.readU8(); // row_type, should be 2
       const key = this.readString();
       const sourceRow = this.readRowData();
       result.removed.push({ key, sourceRow });
@@ -126,7 +128,7 @@ export class BinaryDecoder {
 
     // Read modified rows
     for (let i = 0; i < modifiedCount; i++) {
-      const _rowType = this.readU8(); // Should be 3
+      this.readU8(); // row_type, should be 3
       const key = this.readString();
       const sourceRow = this.readRowData();
       const targetRow = this.readRowData();
@@ -134,7 +136,7 @@ export class BinaryDecoder {
       const diffCount = this.readU32();
       const differences: Array<Difference> = [];
       for (let j = 0; j < diffCount; j++) {
-        const column = this.readString();
+        const column = this.readInternedString();
         const oldValue = this.readString();
         const newValue = this.readString();
         differences.push({ column, oldValue, newValue });
@@ -145,7 +147,7 @@ export class BinaryDecoder {
 
     // Read unchanged rows
     for (let i = 0; i < unchangedCount; i++) {
-      const _rowType = this.readU8(); // Should be 4
+      this.readU8(); // row_type, should be 4
       const key = this.readString();
       const row = this.readRowData();
       result.unchanged.push({ key, row });
@@ -199,13 +201,56 @@ export class BinaryDecoder {
   }
 
   /**
+   * Read a length-prefixed string, reusing the previously decoded string when
+   * identical bytes were seen before (used for column names).
+   */
+  private readInternedString(): string {
+    const length = this.readU32();
+    const start = this.position;
+    if (start + length > this.buffer.length) {
+      throw new Error(
+        `Buffer overflow: attempted to read ${length} bytes at position ${start}, buffer length ${this.buffer.length}`,
+      );
+    }
+    const buf = this.buffer;
+    let hash = length;
+    for (let i = start; i < start + length; i++) {
+      hash = (Math.imul(hash, 31) + buf[i]) | 0;
+    }
+    let bucket = this.internBuckets.get(hash);
+    if (bucket) {
+      for (const [off, len, str] of bucket) {
+        if (len !== length) continue;
+        let same = true;
+        for (let i = 0; i < length; i++) {
+          if (buf[off + i] !== buf[start + i]) {
+            same = false;
+            break;
+          }
+        }
+        if (same) {
+          this.position += length;
+          return str;
+        }
+      }
+    } else {
+      bucket = [];
+      this.internBuckets.set(hash, bucket);
+    }
+    const str = SharedStringDecoder.decode(buf.subarray(start, start + length));
+    this.position += length;
+    bucket.push([start, length, str]);
+    return str;
+  }
+
+  /**
    * Read row data (HashMap<String, String>).
    */
   private readRowData(): Record<string, string> {
     const fieldCount = this.readU32();
     const row: Record<string, string> = {};
     for (let i = 0; i < fieldCount; i++) {
-      const key = this.readString();
+      const key = this.readInternedString();
       const value = this.readString();
       row[key] = value;
     }

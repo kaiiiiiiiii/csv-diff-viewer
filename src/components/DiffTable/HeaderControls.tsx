@@ -7,7 +7,7 @@ import {
   Shrink,
 } from "lucide-react";
 import type { Column } from "@tanstack/react-table";
-import { Badge } from "@/components/ui/badge";
+import { badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -66,16 +66,27 @@ export default function HeaderControls({
       />
 
       <div className="flex items-center gap-2 ml-2">
-        <Badge
-          variant={activeFilter === "all" ? "default" : "outline"}
-          className="cursor-pointer hover:bg-primary/80"
+        <button
+          type="button"
+          aria-pressed={activeFilter === "all"}
+          className={cn(
+            badgeVariants({
+              variant: activeFilter === "all" ? "default" : "outline",
+            }),
+            "cursor-pointer hover:bg-primary/80",
+          )}
           onClick={() => setActiveFilter("all")}
         >
           All
-        </Badge>
-        <Badge
-          variant={activeFilter === "added" ? "default" : "outline"}
+        </button>
+        <button
+          type="button"
+          aria-pressed={activeFilter === "added"}
+          disabled={counts.added === 0}
           className={cn(
+            badgeVariants({
+              variant: activeFilter === "added" ? "default" : "outline",
+            }),
             "cursor-pointer transition-colors",
             activeFilter === "added"
               ? "bg-green-500 hover:bg-green-600"
@@ -83,13 +94,18 @@ export default function HeaderControls({
             counts.added === 0 &&
               "opacity-50 cursor-not-allowed hover:bg-transparent hover:text-foreground hover:border-border",
           )}
-          onClick={() => counts.added > 0 && setActiveFilter("added")}
+          onClick={() => setActiveFilter("added")}
         >
           Added ({counts.added})
-        </Badge>
-        <Badge
-          variant={activeFilter === "removed" ? "default" : "outline"}
+        </button>
+        <button
+          type="button"
+          aria-pressed={activeFilter === "removed"}
+          disabled={counts.removed === 0}
           className={cn(
+            badgeVariants({
+              variant: activeFilter === "removed" ? "default" : "outline",
+            }),
             "cursor-pointer transition-colors",
             activeFilter === "removed"
               ? "bg-red-500 hover:bg-red-600 text-white"
@@ -97,13 +113,18 @@ export default function HeaderControls({
             counts.removed === 0 &&
               "opacity-50 cursor-not-allowed hover:bg-transparent hover:text-foreground hover:border-border",
           )}
-          onClick={() => counts.removed > 0 && setActiveFilter("removed")}
+          onClick={() => setActiveFilter("removed")}
         >
           Removed ({counts.removed})
-        </Badge>
-        <Badge
-          variant={activeFilter === "modified" ? "default" : "outline"}
+        </button>
+        <button
+          type="button"
+          aria-pressed={activeFilter === "modified"}
+          disabled={counts.modified === 0}
           className={cn(
+            badgeVariants({
+              variant: activeFilter === "modified" ? "default" : "outline",
+            }),
             "cursor-pointer transition-colors",
             activeFilter === "modified"
               ? "bg-yellow-500 hover:bg-yellow-600 text-white"
@@ -111,10 +132,10 @@ export default function HeaderControls({
             counts.modified === 0 &&
               "opacity-50 cursor-not-allowed hover:bg-transparent hover:text-foreground hover:border-border",
           )}
-          onClick={() => counts.modified > 0 && setActiveFilter("modified")}
+          onClick={() => setActiveFilter("modified")}
         >
           Modified ({counts.modified})
-        </Badge>
+        </button>
       </div>
 
       <div className="ml-auto flex items-center gap-2">
@@ -127,6 +148,8 @@ export default function HeaderControls({
             variant="ghost"
             size="icon"
             onClick={() => setShowColumnFilters(!showColumnFilters)}
+            aria-label="Toggle column filters"
+            aria-pressed={showColumnFilters}
             className="h-8"
           >
             <Filter className="h-4 w-4" />
@@ -134,7 +157,12 @@ export default function HeaderControls({
           <div className="w-[1px] h-4 bg-border" />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8"
+                aria-label="Toggle columns"
+              >
                 <Columns3 className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -171,6 +199,7 @@ export default function HeaderControls({
             onClick={() => setIsExpanded(!isExpanded)}
             disabled={isFullscreen}
             title={isExpanded ? "Collapse width" : "Expand width"}
+            aria-label={isExpanded ? "Collapse width" : "Expand width"}
           >
             {isExpanded ? (
               <Shrink className="h-4 w-4" />
@@ -185,6 +214,7 @@ export default function HeaderControls({
             className="h-8 w-8"
             onClick={() => setIsFullscreen(!isFullscreen)}
             title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+            aria-label={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
           >
             {isFullscreen ? (
               <Minimize2 className="h-4 w-4" />

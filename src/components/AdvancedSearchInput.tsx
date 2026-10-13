@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { HelpCircle, X } from "lucide-react";
 
 import TokenPill from "./AdvancedSearchInput/TokenPill";
 import {
-  createAdvancedFilterFn,
   parseSearchQuery,
+  serializeTokens,
 } from "./AdvancedSearchInput/parser";
-import type { SearchToken } from "./AdvancedSearchInput/parser";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -23,22 +22,8 @@ interface AdvancedSearchInputProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
-  availableColumns?: Array<string>;
 }
 
-/**
- * Parse advanced search query into tokens
- * Supports:
- * - Multiple terms (space separated, AND by default)
- * - OR operator: term1 OR term2
- * - Exclusion: -term
- * - Exact phrases: "exact phrase"
- * - Column-specific: column:value
- */
-
-/**
- * Create a custom filter function that handles advanced search tokens
- */
 // Re-export parsing utilities for external usage (e.g. DiffTable)
 export {
   parseSearchQuery,
@@ -51,13 +36,8 @@ export function AdvancedSearchInput({
   placeholder = "Advanced search...",
   className,
 }: AdvancedSearchInputProps) {
-  const [tokens, setTokens] = useState<Array<SearchToken>>([]);
+  const tokens = useMemo(() => parseSearchQuery(value), [value]);
   const [showHelp, setShowHelp] = useState(false);
-
-  useEffect(() => {
-    const parsed = parseSearchQuery(value);
-    setTokens(parsed);
-  }, [value]);
 
   const handleClear = useCallback(() => {
     onChange("");
@@ -65,25 +45,15 @@ export function AdvancedSearchInput({
 
   const removeToken = useCallback(
     (index: number) => {
-      const newTokens = tokens.filter((_, i) => i !== index);
-      // Reconstruct query from remaining tokens, preserving OR operators
-      const newQuery = newTokens
-        .map((token, idx) => {
-          let term = "";
-          if (token.type === "exclude") term = `-${token.value}`;
-          else if (token.type === "phrase") term = `"${token.value}"`;
-          else if (token.type === "column" && token.column)
-            term = `${token.column}:${token.value}`;
-          else term = token.value;
-
-          // Add OR operator if this token has OR operator and it's not the first token
-          if (token.operator === "OR" && idx > 0) {
-            return `OR ${term}`;
-          }
-          return term;
-        })
-        .join(" ");
-      onChange(newQuery);
+      // The leading token's OR operator has no left operand once removed
+      const remaining = tokens
+        .filter((_, i) => i !== index)
+        .map((token, idx) =>
+          idx === 0 && token.operator === "OR"
+            ? { ...token, operator: "AND" as const }
+            : token,
+        );
+      onChange(serializeTokens(remaining));
     },
     [tokens, onChange],
   );

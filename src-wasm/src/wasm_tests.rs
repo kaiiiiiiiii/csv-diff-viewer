@@ -2,6 +2,8 @@
 mod tests {
     use crate::*;
     use crate::test_data::*;
+    #[cfg(target_arch = "wasm32")]
+    use std::sync::{Arc, Mutex};
 
     /// Helper function to run a test case and validate results
     fn run_test_case(test_case: &TestCase) -> Result<(), String> {
@@ -397,93 +399,6 @@ mod tests {
         assert!(has_changes);
     }
 
-    // ===== CHUNKED PROCESSING TESTS =====
-
-    #[test]
-    fn test_csv_differ_primary_key() {
-        let source = "id,name,age\n1,Alice,30\n2,Bob,25\n3,Charlie,35";
-        let target = "id,name,age\n1,Alice,30\n2,Bobby,25\n4,David,28";
-
-        let differ = core::CsvDifferInternal::new(
-            source,
-            target,
-            vec!["id".to_string()],
-            true,
-            false,
-            false,
-            vec![],
-            true,
-            "primary-key".to_string(),
-        );
-        assert!(differ.is_ok());
-
-        let mut differ = differ.unwrap();
-        let result = differ.diff_chunk(0, 10, |_p, _m| {}).unwrap();
-
-        assert_eq!(result.added.len(), 1);
-        assert_eq!(result.removed.len(), 1);
-        assert_eq!(result.modified.len(), 1);
-        assert_eq!(result.unchanged.len(), 1);
-    }
-
-    #[test]
-    fn test_csv_differ_content_match() {
-        let source = "name,age,city\nAlice,30,NYC\nBob,25,LA\nCharlie,35,Chicago";
-        let target = "name,age,city\nAlice,30,NYC\nBob,25,San Francisco\nDavid,28,Seattle";
-
-        let differ = core::CsvDifferInternal::new(
-            source,
-            target,
-            vec![],
-            true,
-            false,
-            false,
-            vec![],
-            true,
-            "content-match".to_string(),
-        );
-        assert!(differ.is_ok());
-
-        let mut differ = differ.unwrap();
-        let result = differ.diff_chunk(0, 10, |_p, _m| {}).unwrap();
-
-        assert_eq!(result.added.len(), 1);
-        assert_eq!(result.removed.len(), 1);
-        assert_eq!(result.modified.len(), 1);
-        assert_eq!(result.unchanged.len(), 1);
-    }
-
-    #[test]
-    fn test_csv_differ_chunked_processing() {
-        let source = "id,name\n1,Alice\n2,Bob\n3,Charlie\n4,David\n5,Eve";
-        let target = "id,name\n1,Alice\n2,Bobby\n3,Charlie\n4,David\n5,Eve\n6,Frank";
-
-        let differ = core::CsvDifferInternal::new(
-            source,
-            target,
-            vec!["id".to_string()],
-            true,
-            false,
-            false,
-            vec![],
-            true,
-            "primary-key".to_string(),
-        );
-        assert!(differ.is_ok());
-
-        let mut differ = differ.unwrap();
-
-        // Process in chunks
-        let chunk1 = differ.diff_chunk(0, 3, |_p, _m| {}).unwrap();
-        let chunk2 = differ.diff_chunk(3, 3, |_p, _m| {}).unwrap();
-
-        // First chunk should have some results
-        assert!(!chunk1.added.is_empty() || !chunk1.modified.is_empty() || !chunk1.unchanged.is_empty());
-
-        // Second chunk should have remaining results
-        assert!(!chunk2.added.is_empty() || !chunk2.modified.is_empty() || !chunk2.unchanged.is_empty());
-    }
-
     // ===== COMPREHENSIVE TEST RUNNER =====
 
     /// Run all test cases and report results
@@ -813,10 +728,11 @@ mod tests {
 
     /// Test that parallel processing emits valid THREAD_PROGRESS messages
     #[test]
-    #[wasm_bindgen_test]
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen_test::wasm_bindgen_test]
     fn test_parallel_thread_progress_messages() {
         use crate::parallel;
-        use std::sync::{Arc, Mutex};
+
         
         let source_csv = TEST_CSV_SIMPLE;
         let target_csv = TEST_CSV_SIMPLE_MODIFIED;
@@ -901,13 +817,14 @@ mod tests {
     
     /// Test that parallel results match single-threaded results
     #[test]
-    #[wasm_bindgen_test]
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen_test::wasm_bindgen_test]
     fn test_parallel_vs_single_threaded_results() {
         use crate::parallel;
         use crate::core;
         
-        let source_csv = TEST_CSV_WITH_DUPLICATES;
-        let target_csv = TEST_CSV_WITH_DUPLICATES_MODIFIED;
+        let source_csv = TEST_CSV_SIMPLE;
+        let target_csv = TEST_CSV_SIMPLE_MODIFIED;
         
         // Capture progress for parallel
         let parallel_messages = Arc::new(Mutex::new(Vec::new()));

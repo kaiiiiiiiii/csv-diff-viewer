@@ -20,6 +20,12 @@ export interface WorkerStatus {
   };
 }
 
+function hasChanges<T extends object>(prev: T, updates: Partial<T>): boolean {
+  return (Object.keys(updates) as Array<keyof T>).some(
+    (k) => prev[k] !== updates[k],
+  );
+}
+
 export function useWorkerStatus() {
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus>({
     isActive: false,
@@ -28,17 +34,20 @@ export function useWorkerStatus() {
   });
 
   const updateWorkerStatus = useCallback((updates: Partial<WorkerStatus>) => {
-    setWorkerStatus((prev) => ({ ...prev, ...updates }));
+    setWorkerStatus((prev) =>
+      hasChanges(prev, updates) ? { ...prev, ...updates } : prev,
+    );
   }, []);
 
   const updateThreadStatus = useCallback(
     (threadId: number, updates: Partial<ThreadStatus>) => {
-      setWorkerStatus((prev) => ({
-        ...prev,
-        threads: prev.threads.map((thread) =>
-          thread.id === threadId ? { ...thread, ...updates } : thread,
-        ),
-      }));
+      setWorkerStatus((prev) => {
+        const idx = prev.threads.findIndex((t) => t.id === threadId);
+        if (idx === -1 || !hasChanges(prev.threads[idx], updates)) return prev;
+        const threads = prev.threads.slice();
+        threads[idx] = { ...threads[idx], ...updates };
+        return { ...prev, threads };
+      });
     },
     [],
   );
@@ -75,14 +84,16 @@ export function useWorkerStatus() {
             ? details.queueLength
             : 0;
 
-        setWorkerStatus((prev: WorkerStatus) => ({
-          ...prev,
-          isActive: status === "running",
-          queueLength,
-          currentOperation: message.includes("Processing")
-            ? message.split(" ")[1]
-            : prev.currentOperation,
-        }));
+        setWorkerStatus((prev: WorkerStatus) => {
+          const next = {
+            isActive: status === "running",
+            queueLength,
+            currentOperation: message.includes("Processing")
+              ? message.split(" ")[1]
+              : prev.currentOperation,
+          };
+          return hasChanges(prev, next) ? { ...prev, ...next } : prev;
+        });
       }
     };
 

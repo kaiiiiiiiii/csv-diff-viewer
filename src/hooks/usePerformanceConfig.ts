@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PerformanceConfig } from "@/lib/performance-config";
 import {
   PERFORMANCE_PROFILES,
@@ -18,9 +18,13 @@ const perfLogger = createScopedLogger("Performance Config");
 export function usePerformanceConfig() {
   const [config, setConfig] = useState<PerformanceConfig>(getPerformanceConfig);
 
+  // Latest config, so updates compose without persisting inside a state updater
+  const configRef = useRef(config);
+
   // Update config and persist to localStorage
   const updateConfig = (updates: Partial<PerformanceConfig>) => {
-    const newConfig = { ...config, ...updates };
+    const newConfig = { ...configRef.current, ...updates };
+    configRef.current = newConfig;
     setConfig(newConfig);
     savePerformanceConfig(newConfig);
   };
@@ -28,6 +32,7 @@ export function usePerformanceConfig() {
   // Apply a performance profile
   const applyProfile = (profile: keyof typeof PERFORMANCE_PROFILES) => {
     const profileConfig = PERFORMANCE_PROFILES[profile];
+    configRef.current = profileConfig;
     setConfig(profileConfig);
     savePerformanceConfig(profileConfig);
   };
@@ -38,6 +43,7 @@ export function usePerformanceConfig() {
       if (e.key === "csv-diff-performance-config" && e.newValue) {
         try {
           const newConfig = JSON.parse(e.newValue);
+          configRef.current = newConfig;
           setConfig(newConfig);
         } catch (err) {
           perfLogger.warn("Failed to parse performance config from storage", {

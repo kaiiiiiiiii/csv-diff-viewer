@@ -2,40 +2,32 @@ import { bufferPool, cleanupWasm, initWasm } from "./wasm-context";
 import { handleParse } from "./handlers/parse";
 import { handleCompare } from "./handlers/compare";
 import { createWorkerLogger } from "./worker-logger";
-import type {
-  ComparePayload,
-  ParsePayload,
-  PerformanceMetrics,
-  WorkerRequest,
-  WorkerResponse,
-} from "./types";
+import { runRequest } from "./request-runner";
+import type { WorkerRequest, WorkerResponse } from "./types";
 
 let wasmInitialized = false;
-let workerQueue: Array<{ requestId: number; type: string; timestamp: number }> =
-  [];
 const workerLog = createWorkerLogger("CSV Worker");
 
-const postProgress = (
-  requestId: number,
-  percent: number,
-  message: string,
-): void => {
-  self.postMessage({
-    requestId,
-    type: "progress",
-    data: { percent, message },
-  } as WorkerResponse);
-};
-
-const simplePostMessage = (msg: WorkerResponse): void => {
+const post = (msg: WorkerResponse): void => {
   self.postMessage(msg);
 };
 
-const transferablePostMessage = (
-  msg: WorkerResponse,
-  transferables?: Array<Transferable>,
-): void => {
-  (self.postMessage as any)(msg, transferables ?? []);
+const ensureWasm = async (): Promise<void> => {
+  if (wasmInitialized) return;
+  await initWasm();
+  workerLog.success("WASM runtime ready", {
+    crossOriginIsolated,
+    sharedArrayBuffer: typeof SharedArrayBuffer !== "undefined",
+    hardwareConcurrency: navigator.hardwareConcurrency,
+  });
+  wasmInitialized = true;
+};
+
+// Release WASM resources; later requests re-initialize on demand
+const cleanup = (): void => {
+  bufferPool.clear();
+  cleanupWasm();
+  wasmInitialized = false;
 };
 
 self.onmessage = async (event: MessageEvent): Promise<void> => {
@@ -48,141 +40,44 @@ self.onmessage = async (event: MessageEvent): Promise<void> => {
   }
 
   const { requestId, type, data } = message;
-
-  // Update queue status
-  workerQueue.push({ requestId, type, timestamp: Date.now() });
-
-  // Emit worker status
-  self.postMessage({
-    type: "dev-log",
-    data: {
-      scope: "Worker Pool",
-      message: `Processing ${type} request`,
-      level: "info",
-      status: "running",
-      details: { requestId, type, queueLength: workerQueue.length },
-    },
-  });
-
   try {
-    if (!wasmInitialized) {
-      await initWasm();
-      workerLog.success("WASM runtime ready", {
-        crossOriginIsolated,
-        sharedArrayBuffer: typeof SharedArrayBuffer !== "undefined",
-        hardwareConcurrency: navigator.hardwareConcurrency,
-      });
-      wasmInitialized = true;
-    }
-
-    switch (type) {
-      case "warm-wasm":
-        // WASM is already initialized in the try block above
-        workerLog.success("WASM pre-warmed successfully");
-        self.postMessage({
-          requestId,
-          type: "warm-wasm-complete",
-          data: { success: true },
-        } as WorkerResponse);
-        break;
-      case "parse":
-        handleParse(requestId, data as ParsePayload, (msg) => {
-          if (msg.type === "progress") {
-            postProgress(requestId, msg.data.percent, msg.data.message);
-          } else {
-            simplePostMessage(msg);
-          }
-        });
-        break;
-      case "compare": {
-        const metrics: PerformanceMetrics = { startTime: performance.now() };
-        handleCompare(
-          requestId,
-          data as ComparePayload,
-          transferablePostMessage,
-          (percent: number, msg: string) =>
-            postProgress(requestId, percent, msg),
-          metrics,
-        );
-        break;
-      }
-      default:
-        throw new Error(`Unknown request type: ${type}`);
-    }
+    await runRequest(
+      { requestId, type, data },
+      { post, ensureWasm, handleParse, handleCompare },
+    );
   } catch (error: any) {
-    const errMessage = error?.message ?? String(error);
-    const stack = error?.stack ?? undefined;
-    // Log error for worker-level visibility
-    workerLog.error("Worker request failed", {
-      requestId,
-      type,
-      message: errMessage,
-      stack,
-    });
-
-    // Update queue status on error
-    workerQueue = workerQueue.filter((item) => item.requestId !== requestId);
-
-    self.postMessage({
-      type: "dev-log",
-      data: {
-        scope: "Worker Pool",
-        message: `Error processing ${type} request`,
-        level: "error",
-        status: "error",
-        details: {
-          requestId,
-          type,
-          queueLength: workerQueue.length,
-          error: errMessage,
-        },
-      },
-    });
-
-    // Send structured error payload to the main thread (message + stack)
-    simplePostMessage({
+    // runRequest reports its own failures; this guards anything that escapes
+    post({
       requestId,
       type: `${type}-error`,
-      data: { message: errMessage, stack },
-    } as WorkerResponse);
-  } finally {
-    // Clean up queue on completion (success or error)
-    workerQueue = workerQueue.filter((item) => item.requestId !== requestId);
-
-    if (workerQueue.length === 0) {
-      self.postMessage({
-        type: "dev-log",
-        data: {
-          scope: "Worker Pool",
-          message: "All requests completed",
-          level: "info",
-          status: "idle",
-          details: { queueLength: 0 },
-        },
-      });
-    }
+      data: { message: error?.message ?? String(error), stack: error?.stack },
+    });
   }
 };
 
-// Cleanup on error
-self.addEventListener("error", () => {
-  bufferPool.clear();
-  cleanupWasm();
+// Surface unhandled rejections instead of dropping them silently
+self.addEventListener("unhandledrejection", (event: PromiseRejectionEvent) => {
+  const reason: unknown = event.reason;
+  workerLog.error("Unhandled rejection in worker", {
+    message: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
 });
+
+// Cleanup on error
+self.addEventListener("error", cleanup);
 
 // Cleanup when worker is terminating
 self.addEventListener("close", () => {
   workerLog.info("Worker terminating, cleaning up resources");
-  bufferPool.clear();
-  cleanupWasm();
+  cleanup();
 });
 
 // Also cleanup on page unload to prevent memory leaks
 if (typeof self !== "undefined") {
   const originalClose = self.close;
   self.close = function () {
-    bufferPool.clear();
-    cleanupWasm();
+    cleanup();
     return originalClose.call(this);
   };
 }

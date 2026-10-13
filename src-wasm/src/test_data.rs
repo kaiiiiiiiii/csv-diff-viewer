@@ -706,3 +706,9 @@ pub fn get_all_test_cases() -> Vec<&'static TestCase> {
         &malformed_csv::MIXED_LINE_ENDINGS,
     ]
 }
+
+/// Small CSV datasets used by the parallel-processing tests
+pub const TEST_CSV_SIMPLE: &str = "id,name,age\n1,Alice,30\n2,Bob,25\n3,Charlie,35\n";
+pub const TEST_CSV_SIMPLE_MODIFIED: &str = "id,name,age\n1,Alice,30\n2,Bobby,25\n4,David,28\n";
+pub const TEST_CSV_WITH_DUPLICATES: &str = "id,name,age\n1,Alice,30\n2,Bob,25\n2,Bob,26\n3,Charlie,35\n";
+pub const TEST_CSV_WITH_DUPLICATES_MODIFIED: &str = "id,name,age\n1,Alice,31\n2,Bob,25\n2,Bob,27\n4,David,28\n";

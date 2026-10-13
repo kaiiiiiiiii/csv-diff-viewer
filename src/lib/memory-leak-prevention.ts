@@ -3,6 +3,17 @@
  * These functions help prevent memory leaks when the page is refreshed or navigated away from
  */
 
+/** Keys that must survive cleanup (user preferences). */
+export const PROTECTED_STORAGE_KEYS = ["theme", "csv-diff-performance-config"];
+
+/** Prefixes of app-owned, ephemeral localStorage entries safe to drop on unload. */
+export const EPHEMERAL_STORAGE_PREFIXES = ["csv-diff-tmp:", "csv-diff-cache:"];
+
+function isEphemeralKey(key: string): boolean {
+  if (PROTECTED_STORAGE_KEYS.includes(key)) return false;
+  return EPHEMERAL_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
 /**
  * Setup global cleanup handlers to prevent memory leaks on page unload
  */
@@ -19,14 +30,12 @@ export function setupGlobalCleanup(): () => void {
       }
     }
 
-    // Clean up localStorage items that might accumulate
+    // Remove only ephemeral keys this app owns; user preferences persist
     try {
-      // Keep only essential items
-      const essentialKeys = ["theme"];
-      const keysToRemove = [];
+      const keysToRemove: Array<string> = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && !essentialKeys.includes(key)) {
+        if (key && isEphemeralKey(key)) {
           keysToRemove.push(key);
         }
       }

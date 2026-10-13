@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 use std::borrow::Cow;
-use std::hash::{Hash, Hasher};
 use csv::StringRecord;
-use ahash::{AHashMap, AHashSet, AHasher};
+use ahash::{AHashMap, AHashSet};
 use strsim::{jaro_winkler, normalized_levenshtein};
 
+
+/// Separator for joined key parts and fingerprint cells (ASCII unit separator,
+/// unlikely to appear in CSV data, unlike "|").
+pub const KEY_SEP: char = '\u{1f}';
 
 pub fn is_empty_or_null(value: &str) -> bool {
     let v = value.trim();
@@ -73,7 +76,7 @@ pub fn get_row_fingerprint_fast(
         }
         
         if !first {
-            result.push_str("||");
+            result.push(KEY_SEP);
         }
         first = false;
         
@@ -103,112 +106,33 @@ pub fn get_row_fingerprint_fast(
     result
 }
 
-/// Ultra-fast fingerprint using 64-bit hash instead of string concatenation
-/// Much faster for large datasets with minimal collision risk
-#[inline]
-pub fn get_row_fingerprint_hash(
-    row: &StringRecord,
-    headers: &[String],
-    header_map: &AHashMap<String, usize>,
-    case_sensitive: bool,
-    ignore_whitespace: bool,
-    ignore_empty_vs_null: bool,
-    excluded_set: &AHashSet<String>,
-) -> u64 {
-    let mut hasher = AHasher::default();
-    
-    for h in headers {
-        if excluded_set.contains(h) {
-            continue;
-        }
-        
-        let val = if let Some(&idx) = header_map.get(h) {
-            row.get(idx).unwrap_or("")
-        } else {
-            ""
-        };
-        
-        // Apply normalization inline and hash directly
-        let trimmed = if ignore_whitespace { val.trim() } else { val };
-        
-        if ignore_empty_vs_null && (trimmed.is_empty() || trimmed.eq_ignore_ascii_case("null")) {
-            "EMPTY_OR_NULL".hash(&mut hasher);
-        } else if case_sensitive {
-            if ignore_whitespace && trimmed.len() != val.len() {
-                trimmed.hash(&mut hasher);
-            } else {
-                val.hash(&mut hasher);
-            }
-        } else {
-            // Hash lowercase version without allocating string
-            for byte in trimmed.bytes() {
-                if byte >= b'A' && byte <= b'Z' {
-                    (byte + 32).hash(&mut hasher); // Convert to lowercase
-                } else {
-                    byte.hash(&mut hasher);
-                }
-            }
-        }
-        
-        // Add separator to avoid collisions between different column combinations
-        hasher.write_u8(0xFF);
-    }
-    
-    hasher.finish()
-}
-
-pub fn get_row_fingerprint(
-    row: &StringRecord,
-    headers: &[String],
-    header_map: &AHashMap<String, usize>,
-    case_sensitive: bool,
-    ignore_whitespace: bool,
-    ignore_empty_vs_null: bool,
-    excluded_columns: &[String],
-) -> String {
-    headers.iter()
-        .filter(|h| !excluded_columns.contains(h))
-        .map(|h| {
-            let val = if let Some(&idx) = header_map.get(h) {
-                row.get(idx).unwrap_or("")
-            } else {
-                ""
-            };
-            normalize_value_with_empty_vs_null(val, case_sensitive, ignore_whitespace, ignore_empty_vs_null)
-        })
-        .collect::<Vec<_>>()
-        .join("||")
-}
-
 pub fn get_row_key(
     row: &StringRecord,
     header_map: &AHashMap<String, usize>,
     key_columns: &[String],
 ) -> String {
-    key_columns.iter()
-        .map(|k| {
-            if let Some(&idx) = header_map.get(k) {
-                row.get(idx).unwrap_or("")
-            } else {
-                ""
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("|")
+    let mut key = String::new();
+    for (i, k) in key_columns.iter().enumerate() {
+        if i > 0 {
+            key.push(KEY_SEP);
+        }
+        if let Some(&idx) = header_map.get(k) {
+            key.push_str(row.get(idx).unwrap_or(""));
+        }
+    }
+    key
 }
 
 pub fn record_to_hashmap(
     row: &StringRecord,
     headers: &[String],
 ) -> HashMap<String, String> {
-    headers.iter().enumerate()
-        .map(|(i, h)| (h.clone(), row.get(i).unwrap_or("").to_string()))
-        .collect()
+    let mut map = HashMap::with_capacity(headers.len());
+    for (i, h) in headers.iter().enumerate() {
+        map.insert(h.clone(), row.get(i).unwrap_or("").to_string());
+    }
+    map
 }
-
-/// Calculate row similarity score using strsim algorithms.
-/// Combines Jaro-Winkler for short fields and Levenshtein for longer text.
-/// Returns a value between 0.0 and 1.0 where higher means more similar.
 
 /// Calculate row similarity score using strsim algorithms.
 /// Combines Jaro-Winkler for short fields and Levenshtein for longer text.
@@ -262,4 +186,36 @@ pub fn similarity_jaro_winkler(a: &str, b: &str) -> f64 {
 
 pub fn similarity_levenshtein(a: &str, b: &str) -> f64 {
     normalized_levenshtein(a, b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rec(cells: &[&str]) -> StringRecord {
+        StringRecord::from(cells.to_vec())
+    }
+
+    fn map(headers: &[&str]) -> AHashMap<String, usize> {
+        headers.iter().enumerate().map(|(i, h)| (h.to_string(), i)).collect()
+    }
+
+    #[test]
+    fn row_key_does_not_collide_on_separator_chars() {
+        let hm = map(&["a", "b"]);
+        let keys = vec!["a".to_string(), "b".to_string()];
+        let k1 = get_row_key(&rec(&["a|b", "c"]), &hm, &keys);
+        let k2 = get_row_key(&rec(&["a", "b|c"]), &hm, &keys);
+        assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn fingerprint_does_not_collide_on_separator_chars() {
+        let headers = vec!["a".to_string(), "b".to_string()];
+        let hm = map(&["a", "b"]);
+        let ex = AHashSet::new();
+        let f1 = get_row_fingerprint_fast(&rec(&["x||y", "z"]), &headers, &hm, true, false, false, &ex);
+        let f2 = get_row_fingerprint_fast(&rec(&["x", "y||z"]), &headers, &hm, true, false, false, &ex);
+        assert_ne!(f1, f2);
+    }
 }

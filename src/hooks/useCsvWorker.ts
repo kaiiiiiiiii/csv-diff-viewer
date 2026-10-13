@@ -8,6 +8,7 @@ interface WorkerRequest {
   resolve: (data: any) => void;
   reject: (error: any) => void;
   onProgress?: (percent: number, message: string) => void;
+  startTime: number;
 }
 
 export function useCsvWorker() {
@@ -16,9 +17,50 @@ export function useCsvWorker() {
   const requestIdCounterRef = useRef(1);
   const warmPromiseRef = useRef<Promise<void> | null>(null);
 
+  const send = useCallback(
+    (id: number, type: string, data: unknown, reject: (e: Error) => void) => {
+      const worker = workerRef.current;
+      if (!worker) {
+        requestMapRef.current.delete(id);
+        reject(new Error("Worker is not available"));
+        return;
+      }
+      try {
+        worker.postMessage({ requestId: id, type, data });
+      } catch (err) {
+        requestMapRef.current.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     const worker = new CsvWorker();
     workerRef.current = worker;
+
+    const rejectAllPending = (error: Error) => {
+      const pending = Array.from(requestMapRef.current.values());
+      requestMapRef.current.clear();
+      warmPromiseRef.current = null;
+      pending.forEach((request) => request.reject(error));
+    };
+
+    worker.onerror = (e: ErrorEvent) => {
+      rejectAllPending(
+        new Error(
+          `Worker crashed: ${e.message || "unknown error"}${
+            e.filename ? ` (${e.filename}:${e.lineno})` : ""
+          }`,
+        ),
+      );
+    };
+
+    worker.onmessageerror = () => {
+      rejectAllPending(
+        new Error("Worker message could not be deserialized (messageerror)"),
+      );
+    };
 
     worker.onmessage = (e: MessageEvent) => {
       const { requestId, type, data } = e.data;
@@ -34,6 +76,7 @@ export function useCsvWorker() {
       const request = requestMapRef.current.get(requestId);
 
       if (!request) return;
+      const elapsed = performance.now() - request.startTime;
 
       if (type === "progress") {
         request.onProgress?.(data.percent, data.message);
@@ -48,7 +91,7 @@ export function useCsvWorker() {
           try {
             emitPerformanceLog({
               operation: opName,
-              duration: data?.duration ?? 0,
+              duration: data?.duration ?? elapsed,
               status: "error",
               metrics,
               error: typeof message === "string" ? message : undefined,
@@ -65,7 +108,7 @@ export function useCsvWorker() {
           try {
             emitPerformanceLog({
               operation: opName,
-              duration: data?.duration ?? 0,
+              duration: data?.duration ?? elapsed,
               status: "success",
               metrics,
             });
@@ -79,15 +122,13 @@ export function useCsvWorker() {
     };
 
     return () => {
-      // Clear all pending requests
-      requestMapRef.current.forEach((request) => {
-        request.reject(new Error("Worker terminated"));
-      });
-      requestMapRef.current.clear();
-
-      // Terminate worker
+      // Terminate worker, then fail all pending requests
+      worker.onmessage = null;
+      worker.onerror = null;
+      worker.onmessageerror = null;
       worker.terminate();
       workerRef.current = null;
+      rejectAllPending(new Error("Worker terminated"));
     };
   }, []);
 
@@ -118,16 +159,18 @@ export function useCsvWorker() {
             reject(error);
           },
           onProgress,
+          startTime: performance.now(),
         });
 
-        workerRef.current?.postMessage({
-          requestId: id,
-          type: "parse",
-          data: { csvText, name, hasHeaders, headersOnly, withProgress },
-        });
+        send(
+          id,
+          "parse",
+          { csvText, name, hasHeaders, headersOnly, withProgress },
+          reject,
+        );
       });
     },
-    [],
+    [send],
   );
 
   const warmWasm = useCallback(() => {
@@ -151,21 +194,25 @@ export function useCsvWorker() {
           metricsCollector.endTimer("wasmInitTime");
           reject(error);
         },
+        startTime: performance.now(),
       });
 
-      workerRef.current?.postMessage({
-        requestId: id,
-        type: "warm-wasm",
-        data: {},
-      });
+      send(id, "warm-wasm", {}, reject);
+    });
+    // Don't cache a failed warm-up forever
+    const warm = warmPromiseRef.current;
+    warm.catch(() => {
+      if (warmPromiseRef.current === warm) warmPromiseRef.current = null;
     });
 
     return warmPromiseRef.current;
-  }, []);
+  }, [send]);
+
   const compare = useCallback(
     (
-      source: any,
-      target: any,
+      // Kept for call-site compatibility; the worker reads the raw text from options
+      _source: unknown,
+      _target: unknown,
       options: any,
       onProgress?: (percent: number, message: string) => void,
     ) => {
@@ -184,20 +231,13 @@ export function useCsvWorker() {
             reject(error);
           },
           onProgress,
+          startTime: performance.now(),
         });
 
-        workerRef.current?.postMessage({
-          requestId: id,
-          type: "compare",
-          data: {
-            source,
-            target,
-            ...options,
-          },
-        });
+        send(id, "compare", { ...options }, reject);
       });
     },
-    [],
+    [send],
   );
 
   return { parse, compare, warmWasm };

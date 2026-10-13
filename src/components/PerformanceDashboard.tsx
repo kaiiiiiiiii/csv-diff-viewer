@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Activity, Cpu, Zap } from "lucide-react";
 import type { DevLogEvent, PerformanceLogEvent } from "@/lib/dev-logger";
 import type { ThreadStatus } from "@/hooks/useWorkerStatus";
@@ -35,6 +35,22 @@ interface OperationLog extends PerformanceLogEvent {
 interface DevLogEntry extends DevLogEvent {
   id: string;
 }
+
+const levelStyles = {
+  info: "text-blue-600",
+  success: "text-green-600",
+  warn: "text-yellow-600",
+  error: "text-red-600",
+  debug: "text-gray-500",
+} satisfies Record<string, string>;
+
+const levelIcons = {
+  info: "ℹ️",
+  success: "✅",
+  warn: "⚠️",
+  error: "⛔",
+  debug: "🐞",
+} satisfies Record<string, string>;
 
 export const PerformanceDashboard: React.FC = () => {
   const [operations, setOperations] = useState<Array<OperationLog>>([]);
@@ -177,26 +193,6 @@ export const PerformanceDashboard: React.FC = () => {
         return "text-gray-600";
     }
   };
-
-  const levelStyles = useMemo(() => {
-    return {
-      info: "text-blue-600",
-      success: "text-green-600",
-      warn: "text-yellow-600",
-      error: "text-red-600",
-      debug: "text-gray-500",
-    } satisfies Record<string, string>;
-  }, []);
-
-  const levelIcons = useMemo(() => {
-    return {
-      info: "ℹ️",
-      success: "✅",
-      warn: "⚠️",
-      error: "⛔",
-      debug: "🐞",
-    } satisfies Record<string, string>;
-  }, []);
 
   const getThreadStatusIcon = (status: ThreadStatus["status"]) => {
     switch (status) {

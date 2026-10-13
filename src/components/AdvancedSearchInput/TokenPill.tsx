@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { serializeToken } from "./parser";
 import type { SearchToken } from "./parser";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -9,14 +10,7 @@ interface TokenPillProps {
 }
 
 export function TokenPill({ token, onRemove }: TokenPillProps) {
-  const label =
-    token.type === "exclude"
-      ? `-${token.value}`
-      : token.type === "phrase"
-        ? `"${token.value}"`
-        : token.type === "column" && token.column
-          ? `${token.column}:${token.value}`
-          : token.value;
+  const label = serializeToken(token);
 
   return (
     <div
