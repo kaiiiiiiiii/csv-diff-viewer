@@ -44,8 +44,8 @@ Memory buffer is SharedArrayBuffer: true
 ```json
 {
   "scripts": {
-    "build:wasm": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory -C link-arg=--shared-memory -C link-arg=--max-memory=1073741824' wasm-pack build --target web --release",
-    "build:wasm:dev": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory -C link-arg=--shared-memory -C link-arg=--max-memory=1073741824' wasm-pack build --target web --dev"
+    "build:wasm": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory -C link-arg=--shared-memory -C link-arg=--max-memory=4294967296' wasm-pack build --target web --release",
+    "build:wasm:dev": "cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory -C link-arg=--shared-memory -C link-arg=--max-memory=4294967296' wasm-pack build --target web --dev"
   }
 }
 ```
@@ -58,7 +58,7 @@ rustflags = [
   "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
   "-C", "link-arg=--shared-memory",
   "-C", "link-arg=--import-memory",
-  "-C", "link-arg=--max-memory=1073741824"
+  "-C", "link-arg=--max-memory=4294967296"
 ]
 
 [unstable]
@@ -81,7 +81,7 @@ rustflags = [
   "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
   "-C", "link-arg=--import-memory",
   "-C", "link-arg=--shared-memory",
-  "-C", "link-arg=--max-memory=1073741824",
+  "-C", "link-arg=--max-memory=4294967296",
 ]
 
 [unstable]
@@ -99,7 +99,7 @@ build-std = ["panic_abort", "std"]
 if (sharedArrayBufferSupported && USE_PARALLEL_PROCESSING) {
   memory = new WebAssembly.Memory({
     initial: 20,
-    maximum: 16384,
+    maximum: 65536,
     shared: true,
   });
 
@@ -251,7 +251,7 @@ Cross-Origin-Embedder-Policy: require-corp
 
 ### Memory Usage
 
-- Shared memory: 20 pages initial (1.28MB) → 16384 max (1GB)
+- Shared memory: 20 pages initial (1.28MB) → 65536 max (4GB)
 - Per-thread overhead: ~2MB additional memory
 - Total: ~50-100MB for typical datasets
 
@@ -281,7 +281,7 @@ Cross-Origin-Embedder-Policy: require-corp
 
 ```bash
 # Rebuild WASM with verbose output
-cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory -C link-arg=--shared-memory -C link-arg=--max-memory=1073741824' wasm-pack build --target web --release --verbose
+cd src-wasm && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--import-memory -C link-arg=--shared-memory -C link-arg=--max-memory=4294967296' wasm-pack build --target web --release --verbose
 
 # Check WASM binary for shared memory imports
 wasm-objdump -x src-wasm/pkg/csv_diff_wasm_bg.wasm | grep -i shared
